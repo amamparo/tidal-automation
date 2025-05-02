@@ -1,0 +1,12 @@
+[MAIN]
+fail-under=10.0
+disable=
+    missing-docstring,
+    too-few-public-methods,
+    too-many-arguments,
+    too-many-instance-attributes,
+    fixme,
+
+[FORMAT]
+max-line-length=120
+check-quote-consistency = true

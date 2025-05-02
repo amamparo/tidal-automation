@@ -1,0 +1,81 @@
+on: [ push, pull_request ]
+
+env:
+  python-version: 3.13
+
+jobs:
+  setup:
+    runs-on: ubuntu-latest
+    outputs:
+      cache-key: ${{ steps.cache-key.outputs.value }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ env.python-version }}
+      - id: cache-key
+        run: |
+          HASH=$(sha256sum poetry.lock | cut -d ' ' -f1)
+          echo "value=venv-${{ runner.os }}-python-${{ env.python-version }}-$HASH" >> $GITHUB_OUTPUT
+      - uses: snok/install-poetry@v1
+        with:
+          virtualenvs-create: true
+          virtualenvs-in-project: true
+      - run: make install
+      - uses: actions/cache@v4
+        with:
+          path: .venv
+          key: ${{ steps.cache-key.outputs.value }}
+
+  lint:
+    needs: setup
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: ./.github/actions/setup-check
+        with:
+          python-version: ${{ env.python-version }}
+          venv-cache-key: ${{ needs.setup.outputs.cache-key }}
+      - run: make lint
+
+  types:
+    needs: setup
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: ./.github/actions/setup-check
+        with:
+          python-version: ${{ env.python-version }}
+          venv-cache-key: ${{ needs.setup.outputs.cache-key }}
+      - uses: actions/cache@v4
+        with:
+          path: .mypy_cache
+          key: mypy-${{ runner.os }}-${{ env.python-version }}-${{ hashFiles('**/*.py') }}
+          restore-keys: mypy-${{ runner.os }}-${{ env.python-version }}-
+      - run: make types
+
+  test:
+    needs: setup
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: ./.github/actions/setup-check
+        with:
+          python-version: ${{ env.python-version }}
+          venv-cache-key: ${{ needs.setup.outputs.cache-key }}
+      - run: make test
+
+  synth:
+    needs: setup
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: ./.github/actions/setup-check
+        with:
+          python-version: ${{ env.python-version }}
+          venv-cache-key: ${{ needs.setup.outputs.cache-key }}
+      - uses: actions/setup-node@v3
+        with:
+          node-version: '22'
+      - run: npm install -g aws-cdk
+      - run: make synth

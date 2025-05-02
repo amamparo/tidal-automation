@@ -1,0 +1,6 @@
+{
+  "app": "poetry run python -m aws.main",
+  "context": {
+    "aws-cdk:enableDiffNoFail": "true"
+  }
+}

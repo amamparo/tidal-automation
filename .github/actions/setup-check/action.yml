@@ -1,0 +1,23 @@
+inputs:
+  python-version:
+    description: "Python version to use"
+    required: true
+  venv-cache-key:
+    description: "Cache key for the virtual environment"
+    required: true
+
+runs:
+  using: "composite"
+  steps:
+    - uses: actions/setup-python@v5
+      with:
+        python-version: ${{ inputs.python-version }}
+    - uses: actions/cache@v4
+      with:
+        path: .venv
+        key: ${{ inputs.venv-cache-key }}
+        fail-on-cache-miss: true
+    - uses: snok/install-poetry@v1
+      with:
+        virtualenvs-create: true
+        virtualenvs-in-project: true
