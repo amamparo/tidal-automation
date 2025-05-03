@@ -15,17 +15,14 @@ def main(environment: Environment) -> None:
 
     daily_discover_tracks = session.mix(environment.get('DAILY_DISCOVER_MIX_ID')).items()
 
-    already_seen_artist_ids = []
-    for t in daily_discover_tracks:
-        already_seen_artist_ids.extend([a.id for a in t.artists])
+    already_seen_album_ids = [t.album.id for t in daily_discover_tracks]
 
     additional_tracks = []
     for track in session.mix(environment.get('NEW_ARRIVALS_MIX_ID')).items():
-        track_artist_ids = [a.id for a in track.artists]
-        if any(x in already_seen_artist_ids for x in track_artist_ids):
+        if track.album.id in already_seen_album_ids:
             continue
         additional_tracks.append(track)
-        already_seen_artist_ids.extend(track_artist_ids)
+        already_seen_album_ids.append(track.album.id)
 
     additional_tracks_target_size = len(additional_tracks) * 2
 
@@ -34,11 +31,10 @@ def main(environment: Environment) -> None:
     for track in my_most_listened_tracks:
         if len(additional_tracks) == additional_tracks_target_size:
             break
-        track_artist_ids = [a.id for a in track.artists]
-        if any(x in already_seen_artist_ids for x in track_artist_ids):
+        if track.album.id in already_seen_album_ids:
             continue
         additional_tracks.append(track)
-        already_seen_artist_ids.extend(track_artist_ids)
+        already_seen_album_ids.append(track.album.id)
 
     shuffle(additional_tracks)
 
