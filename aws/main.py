@@ -2,37 +2,55 @@ from os import getcwd
 
 from aws_cdk import Stack, App, Duration
 from aws_cdk.aws_ecr_assets import Platform
+from aws_cdk.aws_events import Rule, Schedule
+from aws_cdk.aws_events_targets import LambdaFunction
 from aws_cdk.aws_lambda import DockerImageFunction, DockerImageCode, Architecture
 from aws_cdk.aws_secretsmanager import Secret
 from constructs import Construct
 
-class PythonLambdaFunction(Stack):
+
+class TidalAutomation(Stack):
     def __init__(self, scope: Construct):
-        super().__init__(scope, 'PythonLambdaFunction')
+        super().__init__(scope, 'TidalAutomation')
 
         secret = Secret(self, 'Secret')
 
         function = DockerImageFunction(
             self,
-            'Function',
+            'UpdateDailyBlend',
             memory_size=128,
             code=DockerImageCode.from_image_asset(
                 directory=getcwd(),
                 platform=Platform.LINUX_ARM64,
-                cmd=['src.main.lambda_handler']
+                cmd=['src.update_daily_blend.lambda_handler']
             ),
             architecture=Architecture.ARM_64,
             environment={
                 'SECRET_ARN': secret.secret_arn,
-                'NAME': 'Alice'
+                'NEW_ARRIVALS_MIX_ID': '011f771e2ce4e3f379afe2d4491217',
+                'DAILY_DISCOVER_MIX_ID': '016daa0bd02387c1695c2cff1c8b30',
+                'MY_MOST_LISTENED_MIX_ID': '0109440f07375fd523d01076bfc28a',
+                'DAILY_BLEND_PLAYLIST_ID': '00578a47-2b0b-49de-95a1-ec38696bfd73',
+                'DAILY_BLEND_SIZE': '50',
             },
             timeout=Duration.minutes(15)
         )
 
         secret.grant_read(function)
 
+        every_morning = Schedule.cron(
+            hour="11",
+            minute="0",
+            day="*",
+            month="*",
+            year="*"
+        )
+
+        Rule(self, 'UpdateDailyBlendSchedule', schedule=every_morning).add_target(
+            LambdaFunction(function))
+
 
 if __name__ == '__main__':
     app = App()
-    PythonLambdaFunction(app)
+    TidalAutomation(app)
     app.synth()

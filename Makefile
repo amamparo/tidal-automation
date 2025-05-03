@@ -23,3 +23,6 @@ diff:
 
 deploy:
 	cdk deploy --require-approval never
+
+token:
+	poetry run python -m util.make_refresh_token
