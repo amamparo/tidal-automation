@@ -21,8 +21,6 @@ def main(environment: Environment) -> None:
 
     additional_tracks = []
     for track in session.mix(environment.get('NEW_ARRIVALS_MIX_ID')).items():
-        if track.id in [x.id for x in daily_discover_tracks]:
-            continue
         track_artist_ids = [a.id for a in track.artists]
         if any(x in already_seen_artist_ids for x in track_artist_ids):
             continue
