@@ -1,9 +1,6 @@
 install:
 	poetry install --no-root
 
-run:
-	poetry run python -m src.main
-
 lint:
 	poetry run pylint src tests aws
 
@@ -26,3 +23,6 @@ deploy:
 
 token:
 	poetry run python -m util.make_refresh_token
+
+daily_blend:
+	poetry run python -m src.update_daily_blend
