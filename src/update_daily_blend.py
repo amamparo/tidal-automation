@@ -6,6 +6,8 @@ from tidalapi import Session
 
 from src.environment import Environment
 
+max_track_duration_minutes = 20
+
 
 @inject
 def main(environment: Environment) -> None:
@@ -28,9 +30,11 @@ def main(environment: Environment) -> None:
 
     additional_tracks_target_size = len(additional_tracks) * 2
 
-    my_most_listened_tracks = session.mix(environment.get('MY_MOST_LISTENED_MIX_ID')).items()
-    daily_blend_track_ids = [t.id for t in daily_blend.items()]
-    my_most_listened_tracks = [t for t in my_most_listened_tracks if t.id not in daily_blend_track_ids]
+    current_daily_blend_track_ids = [t.id for t in daily_blend.items()]
+    my_most_listened_tracks = [
+        t for t in session.mix(environment.get('MY_MOST_LISTENED_MIX_ID')).items()
+        if t.id not in current_daily_blend_track_ids and (t.duration / 60) <= max_track_duration_minutes
+    ]
     shuffle(my_most_listened_tracks)
     for track in my_most_listened_tracks:
         if len(additional_tracks) == additional_tracks_target_size:
