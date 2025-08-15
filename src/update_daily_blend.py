@@ -18,41 +18,12 @@ def main(environment: Environment) -> None:
     daily_blend = session.playlist(environment.get('DAILY_BLEND_PLAYLIST_ID'))
 
     daily_discover_tracks = session.mix(environment.get('DAILY_DISCOVER_MIX_ID')).items()
+    new_arrivals_tracks = session.mix(environment.get('NEW_ARRIVALS_MIX_ID')).items()
 
-    already_seen_album_ids = [t.album.id for t in daily_discover_tracks]
-
-    additional_tracks = []
-    for track in session.mix(environment.get('NEW_ARRIVALS_MIX_ID')).items():
-        if track.album.id in already_seen_album_ids:
-            continue
-        additional_tracks.append(track)
-        already_seen_album_ids.append(track.album.id)
-
-    additional_tracks_target_size = len(additional_tracks) * 2
-
-    current_daily_blend_track_ids = [t.id for t in daily_blend.items()]
-    my_most_listened_tracks = [
-        t for t in session.mix(environment.get('MY_MOST_LISTENED_MIX_ID')).items()
-        if t.id not in current_daily_blend_track_ids and (t.duration / 60) <= max_track_duration_minutes
-    ]
-    shuffle(my_most_listened_tracks)
-    for track in my_most_listened_tracks:
-        if len(additional_tracks) == additional_tracks_target_size:
-            break
-        if track.album.id in already_seen_album_ids:
-            continue
-        additional_tracks.append(track)
-        already_seen_album_ids.append(track.album.id)
-
-    shuffle(additional_tracks)
-
-    n_tracks_to_add_from_additional = int(environment.get('DAILY_BLEND_SIZE')) - len(daily_discover_tracks)
-
-    playlist_tracks = daily_discover_tracks + additional_tracks[:n_tracks_to_add_from_additional]
-
-    shuffle(playlist_tracks)
+    daily_blend_tracks = daily_discover_tracks + new_arrivals_tracks
+    shuffle(daily_blend_tracks)
     daily_blend.clear()
-    daily_blend.add([str(x.id) for x in playlist_tracks])
+    daily_blend.add([str(x.id) for x in daily_blend_tracks])
 
 
 # pylint: disable=unused-argument
