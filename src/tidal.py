@@ -71,21 +71,19 @@ class Tidal:
 
         fixed = self.__fix_last_fm_track(last_fm_track)
 
-        # Use a simpler search approach - just use the first artist and remove duplicates
-        unique_artists = list(dict.fromkeys(fixed.artists))  # Remove duplicates while preserving order
+        # Build search query from artists and title
         search_artists = []
-        for artist in unique_artists[:2]:  # Limit to first 2 unique artists for cleaner search
-            # Normalize for search: remove diacritics, replace & with space, keep apostrophes and exclamation marks
+        for artist in fixed.artists:
+            # Normalize for search: remove diacritics and replace & with space
             artist_for_search = self.__remove_diacritics(artist.replace('&', ' '))
-            # Only remove problematic punctuation, keep ' and !
-            artist_for_search = re.sub(r'[^\w\s\'!]', '', artist_for_search)
+            # Keep the artist as-is mostly, just clean up for search
             if artist_for_search.lower().startswith('the '):
                 search_artists.append(artist_for_search[4:])
             else:
                 search_artists.append(artist_for_search)
 
-        # Normalize title for search too - keep more punctuation
-        title_for_search = re.sub(r'[^\w\s\'!/]', '', self.__remove_diacritics(fixed.title))
+        # Normalize title for search - remove diacritics
+        title_for_search = self.__remove_diacritics(fixed.title)
         query = ' '.join(search_artists) + ' ' + title_for_search
         self.__rate_limit()
         results = self.__tidal.search(query, models=[Track])['tracks']
@@ -186,12 +184,12 @@ class Tidal:
     @staticmethod
     def __normalize_artist_name(name: str) -> str:
         """Normalize artist name for comparison."""
-        # Remove diacritics, convert to lowercase, keep apostrophes and exclamation marks
+        # Remove diacritics and convert to lowercase
         normalized = Tidal.__remove_diacritics(name.lower().strip())
-        normalized = re.sub(r'[^\w\s\'!]', '', normalized)  # Keep ' and !
-        normalized = re.sub(r'\s+', ' ', normalized).strip()  # Normalize whitespace
+        # Normalize whitespace
+        normalized = re.sub(r'\s+', ' ', normalized).strip()
         # Treat & and "and" as equivalent
-        normalized = normalized.replace(' and ', ' ').replace('&', '')
+        normalized = normalized.replace(' & ', ' and ')
         return normalized
 
     @staticmethod
