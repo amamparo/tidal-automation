@@ -1,5 +1,8 @@
 import re
+import time
 import unicodedata
+from collections import deque
+from threading import Lock
 from typing import Set, List, Optional, Dict
 
 from injector import inject, singleton
@@ -17,8 +20,33 @@ class Tidal:
         self.__tidal.load_oauth_session('Bearer', self.__tidal.access_token)
         self.__track_find_cache: Dict[LastFmTrack, Optional[Track]] = {}
         self.__album_artists_cache: Dict[str, Set[str]] = {}
+        
+        # Rate limiting: max 5 requests per second
+        self.__max_requests_per_second = 5
+        self.__request_times = deque(maxlen=self.__max_requests_per_second)
+        self.__rate_limit_lock = Lock()
+
+    def __rate_limit(self):
+        """Enforce rate limiting - max 5 requests per second."""
+        with self.__rate_limit_lock:
+            now = time.time()
+            
+            # Remove timestamps older than 1 second
+            while self.__request_times and self.__request_times[0] < now - 1.0:
+                self.__request_times.popleft()
+            
+            # If we've made 5 requests in the last second, wait
+            if len(self.__request_times) >= self.__max_requests_per_second:
+                sleep_time = 1.0 - (now - self.__request_times[0])
+                if sleep_time > 0:
+                    time.sleep(sleep_time)
+                    now = time.time()
+            
+            # Record this request
+            self.__request_times.append(now)
 
     def get_mix_track_ids(self, mix_id: str) -> List[str]:
+        self.__rate_limit()
         return [str(x.id) for x in self.__tidal.mix(mix_id).items()]
 
     def set_playlist_tracks(self, playlist_id: str, track_ids: List[str]) -> None:
@@ -41,6 +69,7 @@ class Tidal:
                 search_artists.append(artist_for_search)
         
         query = ' '.join(search_artists) + ' ' + self.__remove_diacritics(fixed.title)
+        self.__rate_limit()
         results = self.__tidal.search(query, models=[Track])['tracks']
         various_artists_versions = []
         for result in results:
@@ -66,6 +95,7 @@ class Tidal:
     def __get_album_artists(self, album_id: str) -> Set[str]:
         if album_id in self.__album_artists_cache:
             return self.__album_artists_cache[album_id]
+        self.__rate_limit()
         album = self.__tidal.album(album_id)
         result = {artist.name for artist in album.artists}
         self.__album_artists_cache[album_id] = result
