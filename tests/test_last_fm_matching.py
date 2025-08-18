@@ -105,6 +105,9 @@ class LastFmMatching(TestCase):
         self.assertEqual('James Bonde', track.name)
         self.is_in_artists("Bonde do Role", track)
 
+    # Failed to find: LastFmTrack(title='Ingrid Bergman', artists={'Billy Bragg & Wilco'})
+    # Failed to find: LastFmTrack(title='Battle Royale', artists={'Does It Offend You, Yeah?'})
+
     def is_in_artists(self, artist: str, tidal_track: Track):
         tidal_artists = {artist.name.lower() for artist in tidal_track.artists}
         self.assertIn(artist.lower(), tidal_artists)
