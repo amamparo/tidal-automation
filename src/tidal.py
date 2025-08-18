@@ -1,4 +1,5 @@
 import re
+import unicodedata
 from typing import Set, List, Optional, Dict
 
 from injector import inject, singleton
@@ -34,13 +35,13 @@ class Tidal:
 
         search_artists = []
         for artist in fixed.artists:
-            artist_for_search = artist.replace('&', ' ')
+            artist_for_search = self.__remove_diacritics(artist.replace('&', ' '))
             if artist_for_search.lower().startswith('the '):
                 search_artists.append(artist_for_search[4:])
             else:
                 search_artists.append(artist_for_search)
         
-        query = ' '.join(search_artists) + ' ' + fixed.title
+        query = ' '.join(search_artists) + ' ' + self.__remove_diacritics(fixed.title)
         results = self.__tidal.search(query, models=[Track])['tracks']
         various_artists_versions = []
         for result in results:
@@ -106,18 +107,19 @@ class Tidal:
         )
 
     @staticmethod
+    def __remove_diacritics(text: str) -> str:
+        nfd_form = unicodedata.normalize('NFD', text)
+        return ''.join(char for char in nfd_form if unicodedata.category(char) != 'Mn')
+    
+    @staticmethod
     def __artists_match(artist: str, track_artists: Set[str]) -> bool:
-        """Check if artist matches any in track_artists, treating 'and' and '&' as equivalent."""
-        # Normalize the artist name by replacing '&' with 'and'
-        normalized_artist = artist.replace('&', 'and').lower().strip()
+        normalized_artist = Tidal.__remove_diacritics(artist.replace('&', 'and').lower().strip())
         
-        # Also create version without "The" prefix for comparison
         artist_without_the = normalized_artist[4:] if normalized_artist.startswith('the ') else normalized_artist
         artist_with_the = 'the ' + normalized_artist if not normalized_artist.startswith('the ') else normalized_artist
         
         for track_artist in track_artists:
-            # Normalize the track artist name
-            normalized_track_artist = track_artist.replace('&', 'and').lower().strip()
+            normalized_track_artist = Tidal.__remove_diacritics(track_artist.replace('&', 'and').lower().strip())
             
             # Check exact match or match with/without "The" prefix
             if (normalized_artist == normalized_track_artist or 
