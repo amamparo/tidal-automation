@@ -77,6 +77,15 @@ class LastFmMatching(TestCase):
         self.assertEqual(track.name, 'Daylight')
         self.is_in_artists("Matt and Kim", track)
 
+    def test_idk_why_last_fm_reggaeton_artists_are_always_comma_separated(self):
+        track = self.tidal.find_equivalent_track(LastFmTrack(
+            'Me Porto Bonito',
+            {'Bad Bunny', 'Chencho Corleone'}
+        ))
+
+        self.assertEqual(track.name, 'Me Porto Bonito')
+        self.is_in_artists("Bad Bunny", track)
+        self.is_in_artists("Chencho Corleone", track)
 
     def is_in_artists(self, artist: str, tidal_track: Track):
         tidal_artists = {artist.name.lower() for artist in tidal_track.artists}
