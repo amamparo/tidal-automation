@@ -15,12 +15,16 @@ daily_blend_size = 100
 def main(environment: Environment, tidal: Tidal, last_fm: LastFm) -> None:
     daily_blend_track_ids = tidal.get_mix_track_ids(environment.get('NEW_ARRIVALS_MIX_ID'))
     for mix_type in ['recommended', 'mix', 'library']:
-        for last_fm_track in tqdm(last_fm.get_mix(mix_type)):
-            tidal_track = tidal.find_equivalent_track(last_fm_track)
-            if tidal_track:
-                daily_blend_track_ids.append(str(tidal_track.id))
-            else:
-                print('Failed to find tidal equivalent for: ', last_fm_track)
+        last_fm_tracks = last_fm.get_mix(mix_type)
+        with tqdm(total=len(last_fm_tracks), desc=f'Scanning last.fm {mix_type}') as progress:
+            for last_fm_track in last_fm_tracks:
+                progress.write(str(last_fm_track))
+                tidal_track = tidal.find_equivalent_track(last_fm_track)
+                if tidal_track:
+                    daily_blend_track_ids.append(str(tidal_track.id))
+                else:
+                    progress.write(f'Failed to find tidal equivalent for: {last_fm_track}')
+                progress.update(1)
 
     shuffle(daily_blend_track_ids)
 

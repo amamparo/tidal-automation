@@ -29,7 +29,6 @@ class Tidal:
     def find_equivalent_track(self, last_fm_track: LastFmTrack) -> Optional[Track]:
         if last_fm_track in self.__track_find_cache:
             return self.__track_find_cache[last_fm_track]
-        print(f'Finding equivalent track for: {last_fm_track}')
 
         fixed = self.__fix_last_fm_track(last_fm_track)
 
@@ -50,7 +49,7 @@ class Tidal:
                 continue
 
             album_artists = self.__get_album_artists(str(result.album.id))
-            if 'Various Artists' in album_artists:
+            if not track_artists & album_artists:
                 various_artists_versions.append(result)
                 continue
 
