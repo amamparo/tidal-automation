@@ -75,7 +75,7 @@ class LastFmMatching(TestCase):
         ))
 
         self.assertEqual(track.name, 'Daylight')
-        self.is_in_artists("Matt & Kim", track)
+        self.is_in_artists("Matt and Kim", track)
 
 
     def is_in_artists(self, artist: str, tidal_track: Track):

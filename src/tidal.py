@@ -31,12 +31,14 @@ class Tidal:
 
         fixed = self.__fix_last_fm_track(last_fm_track)
 
-        query = ' '.join(fixed.artists) + ' ' + fixed.title
+        # Replace & with space in artists for search query
+        search_artists = [artist.replace('&', ' ') for artist in fixed.artists]
+        query = ' '.join(search_artists) + ' ' + fixed.title
         results = self.__tidal.search(query, models=[Track])['tracks']
         various_artists_versions = []
         for result in results:
             track_artists = {artist.name for artist in result.artists}
-            if not any(artist in track_artists for artist in fixed.artists):
+            if not any(self.__artists_match(artist, track_artists) for artist in fixed.artists):
                 continue
 
             album_artists = self.__get_album_artists(str(result.album.id))
@@ -88,3 +90,16 @@ class Tidal:
             title=cleaned_title,
             artists=artists
         )
+
+    @staticmethod
+    def __artists_match(artist: str, track_artists: Set[str]) -> bool:
+        """Check if artist matches any in track_artists, treating 'and' and '&' as equivalent."""
+        # Normalize the artist name by replacing '&' with 'and'
+        normalized_artist = artist.replace('&', 'and').lower().strip()
+        
+        for track_artist in track_artists:
+            # Normalize the track artist name
+            normalized_track_artist = track_artist.replace('&', 'and').lower().strip()
+            if normalized_artist == normalized_track_artist:
+                return True
+        return False
