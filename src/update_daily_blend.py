@@ -1,78 +1,36 @@
-import random
-from typing import Optional, List, Set
+from random import shuffle
+from typing import Optional
 
-import requests
 from injector import inject, Injector
-from tidalapi import Session, Track
 from tqdm import tqdm
-from unidecode import unidecode
 
 from src.environment import Environment
+from src.last_fm import LastFm
+from src.tidal import Tidal
 
 daily_blend_size = 100
 
 
 @inject
-def main(environment: Environment) -> None:
-    session = Session()
-    session.token_refresh(environment.get('TIDAL_REFRESH_TOKEN'))
-    session.load_oauth_session('Bearer', session.access_token)
+def main(environment: Environment, tidal: Tidal, last_fm: LastFm) -> None:
+    daily_blend_track_ids = tidal.get_mix_track_ids(environment.get('NEW_ARRIVALS_MIX_ID'))
+    for mix_type in ['recommended', 'mix', 'library']:
+        for last_fm_track in tqdm(last_fm.get_mix(mix_type)):
+            tidal_track = tidal.find_equivalent_track(last_fm_track)
+            if tidal_track:
+                daily_blend_track_ids.append(str(tidal_track.id))
+            else:
+                print('Failed to find tidal equivalent for: ', last_fm_track)
 
-    daily_blend = session.playlist(environment.get('DAILY_BLEND_PLAYLIST_ID'))
-    existing_daily_blend_track_ids = {x.id for x in daily_blend.items()}
+    shuffle(daily_blend_track_ids)
 
-    new_daily_blend_track_ids = {x.id for x in session.mix(environment.get('DAILY_DISCOVER_MIX_ID')).items()}
+    daily_discover_track_ids = tidal.get_mix_track_ids(environment.get('DAILY_DISCOVER_MIX_ID'))
+    daily_blend_track_ids = daily_blend_track_ids[:daily_blend_size - len(daily_discover_track_ids)]
+    daily_blend_track_ids += daily_discover_track_ids
 
-    last_fm_recommendations = get_lastfm_playlist_tidal_track_ids(session, 'recommended')
-    last_fm_mix = get_lastfm_playlist_tidal_track_ids(session, 'mix')
-    last_fm_library = get_lastfm_playlist_tidal_track_ids(session, 'library')
-    new_arrivals = {x.id for x in session.mix(environment.get('NEW_ARRIVALS_MIX_ID')).items()}
+    shuffle(daily_blend_track_ids)
 
-    new_daily_blend_track_ids |= (
-                                         last_fm_recommendations | last_fm_mix | last_fm_library | new_arrivals
-                                 ) - existing_daily_blend_track_ids
-
-    if len(new_daily_blend_track_ids) < daily_blend_size:
-        n_needed = daily_blend_size - len(new_daily_blend_track_ids)
-        extras = list(new_arrivals - new_daily_blend_track_ids)
-        random.shuffle(extras)
-        extras = extras[:n_needed]
-        print(f'Adding {len(extras)} duplicates from previous tracklist to fill out daily blend')
-        new_daily_blend_track_ids |= set(extras)
-
-    daily_blend.clear()
-    daily_blend.add([str(x) for x in random.sample(list(new_daily_blend_track_ids), daily_blend_size)])
-
-
-def get_lastfm_playlist_tidal_track_ids(session: Session, _type: str) -> Set[int]:
-    tracks = set()
-    playlist = requests.get(
-        f'https://www.last.fm/player/station/user/amamparo/{_type}?page=1&ajax=1'
-    ).json()['playlist']
-    for x in tqdm(playlist):
-        track = get_tidal_track(session, x['name'], [a['name'] for a in x['artists']])
-        if track:
-            tracks.add(track.id)
-    return tracks
-
-
-def get_tidal_track(session: Session, last_fm_title: str, last_fm_artists: List[str]) -> Optional[Track]:
-    search_results = session.search(' '.join(last_fm_artists) + ' ' + last_fm_title, models=[Track])['tracks']
-    for search_result in search_results:
-        if norm(last_fm_title) not in norm(search_result.name):
-            continue
-
-        last_fm_artists = {norm(x) for x in last_fm_artists}
-        tidal_artists = {norm(a.name) for a in search_result.artists}
-        if not last_fm_artists <= tidal_artists:
-            continue
-
-        return search_result
-    return None
-
-
-def norm(text: str) -> str:
-    return unidecode(text).lower().strip()
+    tidal.set_playlist_tracks(environment.get('DAILY_BLEND_PLAYLIST_ID'), daily_blend_track_ids)
 
 
 # pylint: disable=unused-argument
