@@ -71,18 +71,21 @@ class Tidal:
 
         fixed = self.__fix_last_fm_track(last_fm_track)
 
+        # Use a simpler search approach - just use the first artist and remove duplicates
+        unique_artists = list(dict.fromkeys(fixed.artists))  # Remove duplicates while preserving order
         search_artists = []
-        for artist in fixed.artists:
-            # Normalize for search: remove diacritics, replace & with space, remove punctuation
+        for artist in unique_artists[:2]:  # Limit to first 2 unique artists for cleaner search
+            # Normalize for search: remove diacritics, replace & with space, keep apostrophes and exclamation marks
             artist_for_search = self.__remove_diacritics(artist.replace('&', ' '))
-            artist_for_search = re.sub(r'[^\w\s]', '', artist_for_search)  # Remove all punctuation
+            # Only remove problematic punctuation, keep ' and !
+            artist_for_search = re.sub(r'[^\w\s\'!]', '', artist_for_search)
             if artist_for_search.lower().startswith('the '):
                 search_artists.append(artist_for_search[4:])
             else:
                 search_artists.append(artist_for_search)
 
-        # Normalize title for search too
-        title_for_search = re.sub(r'[^\w\s]', '', self.__remove_diacritics(fixed.title))
+        # Normalize title for search too - keep more punctuation
+        title_for_search = re.sub(r'[^\w\s\'!/]', '', self.__remove_diacritics(fixed.title))
         query = ' '.join(search_artists) + ' ' + title_for_search
         self.__rate_limit()
         results = self.__tidal.search(query, models=[Track])['tracks']
@@ -149,17 +152,21 @@ class Tidal:
                     if cleaned_part:
                         artists.add(cleaned_part)
 
-        with_or_featuring_pattern = r'\s*\([^)]*(?:with|ft.|feat\.?|featuring)\s+([^)]+)\)'
-        matches = re.findall(with_or_featuring_pattern, title, re.IGNORECASE)
+        # Extract artists from titles with patterns like "(Artist1 & Artist2)" or "(feat. Artist)"
+        collaboration_pattern = r'\s*\([^)]*(?:with|ft\.?|feat\.?|featuring|&)[^)]*\)'
+        matches = re.findall(r'\(([^)]*(?:with|ft\.?|feat\.?|featuring|&)[^)]*)\)', title, re.IGNORECASE)
 
         for match in matches:
-            artist_names = re.split(r'\s*[&,]\s*|\s+and\s+', match)
+            # Remove collaboration keywords and extract artists
+            cleaned_match = re.sub(r'(?:with|ft\.?|feat\.?|featuring)\s*', '', match, flags=re.IGNORECASE)
+            artist_names = re.split(r'\s*[&,]\s*|\s+and\s+', cleaned_match)
             for artist in artist_names:
                 artist = artist.strip()
                 if artist:
                     artists.add(artist)
 
-        cleaned_title = re.sub(with_or_featuring_pattern, '', title, flags=re.IGNORECASE)
+        # Remove collaboration parentheses from title
+        cleaned_title = re.sub(collaboration_pattern, '', title, flags=re.IGNORECASE)
 
         track_version_pattern = r'\s*\([^)]*(?:Album Version|Radio Edit|Single Version|Extended Version|Original Mix|Remix|Remastered|Explicit|Clean)\)'
         cleaned_title = re.sub(track_version_pattern, '', cleaned_title, flags=re.IGNORECASE)
@@ -179,9 +186,9 @@ class Tidal:
     @staticmethod
     def __normalize_artist_name(name: str) -> str:
         """Normalize artist name for comparison."""
-        # Remove diacritics, convert to lowercase, remove all punctuation, normalize spacing
+        # Remove diacritics, convert to lowercase, keep apostrophes and exclamation marks
         normalized = Tidal.__remove_diacritics(name.lower().strip())
-        normalized = re.sub(r'[^\w\s]', '', normalized)  # Remove all punctuation
+        normalized = re.sub(r'[^\w\s\'!]', '', normalized)  # Keep ' and !
         normalized = re.sub(r'\s+', ' ', normalized).strip()  # Normalize whitespace
         # Treat & and "and" as equivalent
         normalized = normalized.replace(' and ', ' ').replace('&', '')

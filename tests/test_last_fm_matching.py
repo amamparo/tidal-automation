@@ -75,7 +75,7 @@ class LastFmMatching(TestCase):
         self.assertEqual(track.title, 'Daylight')
         self.is_in_artists("Matt and Kim", track)
 
-    def test_idk_why_last_fm_reggaeton_artists_are_always_comma_separated(self):
+    def test_comma_separated_multiple_artists(self):
         track = self.tidal.find_equivalent_track(LastFmTrack(
             'Me Porto Bonito',
             {'Bad Bunny, Chencho Corleone'}
@@ -85,7 +85,7 @@ class LastFmMatching(TestCase):
         self.is_in_artists("Bad Bunny", track)
         self.is_in_artists("Chencho Corleone", track)
 
-    def test_the_the(self):
+    def test_the_prefix_normalization(self):
         track = self.tidal.find_equivalent_track(LastFmTrack(
             'Today',
             {'The Smashing Pumpkins'}
@@ -94,7 +94,7 @@ class LastFmMatching(TestCase):
         self.assertTrue('Today' in track.title)
         self.is_in_artists("Smashing Pumpkins", track)
 
-    def test_weird_brazillian_characters(self):
+    def test_diacritical_characters_in_artist_names(self):
         track = self.tidal.find_equivalent_track(LastFmTrack(
             'James Bonde',
             {'Bonde do Rolê'}
@@ -103,7 +103,7 @@ class LastFmMatching(TestCase):
         self.assertEqual('James Bonde', track.title)
         self.is_in_artists("Bonde do Role", track)
 
-    def test_ampersand_in_last_fm_artist(self):
+    def test_ampersand_separated_multiple_artists(self):
         track = self.tidal.find_equivalent_track(LastFmTrack(
             'Ingrid Bergman',
             {'Billy Bragg & Wilco'}
@@ -113,7 +113,7 @@ class LastFmMatching(TestCase):
         self.is_in_artists("Wilco", track)
         self.is_in_artists("Billy Bragg", track)
 
-    def test_comma_in_single_artist_name(self):
+    def test_comma_punctuation_in_single_artist_name(self):
         track = self.tidal.find_equivalent_track(LastFmTrack(
             'Battle Royale',
             {'Does It Offend You, Yeah?'}
@@ -122,7 +122,7 @@ class LastFmMatching(TestCase):
         self.assertTrue('Battle Royale' in track.title)
         self.is_in_artists("Does It Offend You, Yeah?", track)
 
-    def test_fixme_1(self):
+    def test_slash_in_song_title(self):
         track = self.tidal.find_equivalent_track(LastFmTrack(
             'One Night/All Night',
             {'Justice'}
@@ -132,7 +132,7 @@ class LastFmMatching(TestCase):
         self.is_in_artists("Justice", track)
         self.is_in_artists("Tame Impala", track)
 
-    def test_fixme_2(self):
+    def test_apostrophes_in_artist_name(self):
         track = self.tidal.find_equivalent_track(LastFmTrack(
             'Human',
             {"Rag'n'Bone Man"}
@@ -141,7 +141,7 @@ class LastFmMatching(TestCase):
         self.assertEqual('Human', track.title)
         self.is_in_artists("Rag'n'Bone Man", track)
 
-    def test_fixme_3(self):
+    def test_extract_artists_from_title_parentheses(self):
         track = self.tidal.find_equivalent_track(LastFmTrack(
             "Anywhere Away From Here (Rag’n’Bone Man & P!nk)",
             {"Rag'n'Bone Man"}
