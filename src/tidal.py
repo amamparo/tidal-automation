@@ -35,8 +35,7 @@ class Tidal:
         results = self.__tidal.search(query, models=[Track])['tracks']
         for result in results:
             album_artists = self.__get_album_artists(str(result.album.id))
-            track_artists = {artist.name for artist in result.artists}
-            if not album_artists & track_artists:
+            if 'Various Artists' in album_artists:
                 continue
 
             self.__track_find_cache[last_fm_track] = result
