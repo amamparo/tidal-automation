@@ -36,6 +36,15 @@ class LastFmMatching(TestCase):
         self.is_in_artists("Trigga", track)
         self.is_in_artists("Takura", track)
 
+    def test_dfa1979_romantic_rights(self):
+        track = self.tidal.find_equivalent_track(LastFmTrack(
+            'Romantic Rights (Album Version)',
+            {'Death From Above 1979'}
+        ))
+
+        self.assertEqual(track.name, 'Romantic Rights')
+        self.is_in_artists("Death From Above 1979", track)
+
     def is_in_artists(self, artist: str, tidal_track: Track):
         tidal_artists = {artist.name.lower() for artist in tidal_track.artists}
         self.assertIn(artist.lower(), tidal_artists)

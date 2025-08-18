@@ -44,8 +44,8 @@ class Tidal:
         title = last_fm_track.title
         artists = set(last_fm_track.artists)
         
-        pattern = r'\s*\([^)]*(?:with|feat\.?|featuring)\s+([^)]+)\)'
-        matches = re.findall(pattern, title, re.IGNORECASE)
+        with_or_featuring_pattern = r'\s*\([^)]*(?:with|feat\.?|featuring)\s+([^)]+)\)'
+        matches = re.findall(with_or_featuring_pattern, title, re.IGNORECASE)
 
         for match in matches:
             artist_names = re.split(r'\s*[&,]\s*|\s+and\s+', match)
@@ -54,7 +54,11 @@ class Tidal:
                 if artist:
                     artists.add(artist)
         
-        cleaned_title = re.sub(r'\s*\([^)]*(?:with|feat\.?|featuring)[^)]*\)', '', title, flags=re.IGNORECASE)
+        cleaned_title = re.sub(with_or_featuring_pattern, '', title, flags=re.IGNORECASE)
+
+        track_version_pattern = r'\s*\([^)]*(?:Album Version|Radio Edit|Single Version|Extended Version|Original Mix|Remix|Remastered|Explicit|Clean)\)'
+        cleaned_title = re.sub(track_version_pattern, '', cleaned_title, flags=re.IGNORECASE)
+        
         cleaned_title = cleaned_title.strip()
         
         return LastFmTrack(
