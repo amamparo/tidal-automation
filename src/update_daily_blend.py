@@ -19,8 +19,8 @@ def main(environment: Environment, tidal: Tidal, last_fm: LastFm) -> None:
         last_fm_tracks = last_fm.get_mix(mix_type)
         with tqdm(total=len(last_fm_tracks), desc=f'Scanning last.fm {mix_type}') as progress:
             for last_fm_track in last_fm_tracks:
-                tidal_track = tidal.find_equivalent_track(last_fm_track)
                 progress.write(f'> {last_fm_track}')
+                tidal_track = tidal.find_equivalent_track(last_fm_track)
                 if tidal_track:
                     progress.write(f'\033[92m✓ {tidal_track}\033[0m')
                     daily_blend_track_ids.append(str(tidal_track.id))
