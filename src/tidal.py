@@ -67,7 +67,14 @@ class Tidal:
     @staticmethod
     def __fix_last_fm_track(last_fm_track: LastFmTrack) -> LastFmTrack:
         title = last_fm_track.title
-        artists = set(last_fm_track.artists)
+        artists = set()
+        
+        for artist in last_fm_track.artists:
+            if ',' in artist:
+                for split_artist in artist.split(','):
+                    artists.add(split_artist.strip())
+            else:
+                artists.add(artist)
 
         with_or_featuring_pattern = r'\s*\([^)]*(?:with|ft.|feat\.?|featuring)\s+([^)]+)\)'
         matches = re.findall(with_or_featuring_pattern, title, re.IGNORECASE)
