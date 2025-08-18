@@ -105,8 +105,24 @@ class LastFmMatching(TestCase):
         self.assertEqual('James Bonde', track.name)
         self.is_in_artists("Bonde do Role", track)
 
-    # Failed to find: LastFmTrack(title='Ingrid Bergman', artists={'Billy Bragg & Wilco'})
-    # Failed to find: LastFmTrack(title='Battle Royale', artists={'Does It Offend You, Yeah?'})
+    def test_ampersand_in_last_fm_artist(self):
+        track = self.tidal.find_equivalent_track(LastFmTrack(
+            'Ingrid Bergman',
+            {'Billy Bragg & Wilco'}
+        ))
+
+        self.assertEqual('Ingrid Bergman', track.name)
+        self.is_in_artists("Wilco", track)
+        self.is_in_artists("Billy Bragg", track)
+
+    def test_idk_why_this_is_failing(self):
+        track = self.tidal.find_equivalent_track(LastFmTrack(
+            'Battle Royale',
+            {'Does It Offend You, Yeah?'}
+        ))
+
+        self.assertTrue('Battle Royale' in track.name)
+        self.is_in_artists("Does It Offend You, Yeah?", track)
 
     def is_in_artists(self, artist: str, tidal_track: Track):
         tidal_artists = {artist.name.lower() for artist in tidal_track.artists}
