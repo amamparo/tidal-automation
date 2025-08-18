@@ -150,7 +150,7 @@ class LastFmMatching(TestCase):
         self.is_in_artists("Rag'n'Bone Man", track)
         self.is_in_artists("P!Nk", track)
 
-    def test_fixme(self):
+    def test_prefer_original_artist_album_over_covers(self):
         track = self.tidal.find_equivalent_track(LastFmTrack(
             "Como La Flor",
             {"Selena"}

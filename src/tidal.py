@@ -87,6 +87,8 @@ class Tidal:
         self.__rate_limit()
         results = self.__tidal.search(query, models=[Track])['tracks']
         various_artists_versions = []
+        regular_versions = []
+        
         for result in results:
             track_artists = {artist.name for artist in result.artists}
             if not any(self.__artists_match(artist, track_artists) for artist in fixed.artists):
@@ -107,9 +109,21 @@ class Tidal:
                 various_artists_versions.append(tidal_track)
                 continue
 
-            self.__track_find_cache[last_fm_track] = tidal_track
-            return tidal_track
+            # Check if the album artist matches our search artist (prefer originals over covers)
+            if any(self.__artists_match(artist, album_artists) for artist in fixed.artists):
+                # This is likely the original version
+                self.__track_find_cache[last_fm_track] = tidal_track
+                return tidal_track
+            else:
+                # This might be a cover or tribute album
+                regular_versions.append(tidal_track)
 
+        # Return regular versions if we have them (non-Various Artists albums)
+        if regular_versions:
+            self.__track_find_cache[last_fm_track] = regular_versions[0]
+            return regular_versions[0]
+            
+        # Otherwise return Various Artists compilations
         if various_artists_versions:
             self.__track_find_cache[last_fm_track] = various_artists_versions[0]
             return various_artists_versions[0]
