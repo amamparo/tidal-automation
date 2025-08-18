@@ -96,6 +96,15 @@ class LastFmMatching(TestCase):
         self.assertTrue('Today' in track.name)
         self.is_in_artists("Smashing Pumpkins", track)
 
+    def test_weird_brazillian_characters(self):
+        track = self.tidal.find_equivalent_track(LastFmTrack(
+            'James Bonde',
+            {'Bonde do Rolê'}
+        ))
+
+        self.assertEqual('James Bonde', track.name)
+        self.is_in_artists("Bonde do Role", track)
+
     def is_in_artists(self, artist: str, tidal_track: Track):
         tidal_artists = {artist.name.lower() for artist in tidal_track.artists}
         self.assertIn(artist.lower(), tidal_artists)
