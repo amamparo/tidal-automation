@@ -32,8 +32,7 @@ class Tidal:
         self.__track_find_cache: Dict[LastFmTrack, Optional[TidalTrack]] = {}
         self.__album_cache: Dict[str, Album] = {}
 
-        # Rate limiting: max 5 requests per second
-        self.__max_requests_per_second = 5
+        self.__max_requests_per_second = 4
         self.__request_times = deque(maxlen=self.__max_requests_per_second)
         self.__rate_limit_lock = Lock()
 
@@ -183,12 +182,10 @@ class Tidal:
 
     @staticmethod
     def __normalize_artist_name(name: str) -> str:
-        """Normalize artist name for comparison."""
-        # Remove diacritics and convert to lowercase
+        if not name:
+            return ''
         normalized = Tidal.__remove_diacritics(name.lower().strip())
-        # Normalize whitespace
         normalized = re.sub(r'\s+', ' ', normalized).strip()
-        # Treat & and "and" as equivalent
         normalized = normalized.replace(' & ', ' and ')
         return normalized
 
