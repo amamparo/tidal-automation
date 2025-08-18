@@ -60,6 +60,15 @@ class LastFmMatching(TestCase):
         self.assertIsNotNone(track)
         self.assertTrue('Grand Theft Auto' in track.album.name)
 
+    def test_use_og_selena_quintanilla_not_some_stupid_cover(self):
+        track = self.tidal.find_equivalent_track(LastFmTrack(
+            "I Could Fall In Love",
+            {'Selena'}
+        ))
+        self.assertEqual(track.name, "I Could Fall In Love")
+        self.is_in_artists("Selena", track)
+
+
     def is_in_artists(self, artist: str, tidal_track: Track):
         tidal_artists = {artist.name.lower() for artist in tidal_track.artists}
         self.assertIn(artist.lower(), tidal_artists)

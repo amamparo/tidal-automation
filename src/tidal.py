@@ -35,6 +35,10 @@ class Tidal:
         results = self.__tidal.search(query, models=[Track])['tracks']
         various_artists_versions = []
         for result in results:
+            track_artists = {artist.name for artist in result.artists}
+            if not any(artist in track_artists for artist in fixed.artists):
+                continue
+
             album_artists = self.__get_album_artists(str(result.album.id))
             if 'Various Artists' in album_artists:
                 various_artists_versions.append(result)
