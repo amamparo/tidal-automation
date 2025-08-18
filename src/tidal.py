@@ -15,6 +15,7 @@ class Tidal:
         self.__tidal.token_refresh(environment.get('TIDAL_REFRESH_TOKEN'))
         self.__tidal.load_oauth_session('Bearer', self.__tidal.access_token)
         self.__track_find_cache: Dict[LastFmTrack, Optional[Track]] = {}
+        self.__album_artists_cache: Dict[str, Set[str]] = {}
 
     def get_mix_track_ids(self, mix_id: str) -> List[str]:
         return [str(x.id) for x in self.__tidal.mix(mix_id).items()]
@@ -33,17 +34,30 @@ class Tidal:
         query = ' '.join(fixed.artists) + ' ' + fixed.title
         results = self.__tidal.search(query, models=[Track])['tracks']
         for result in results:
+            album_artists = self.__get_album_artists(str(result.album.id))
+            track_artists = {artist.name for artist in result.artists}
+            if not album_artists & track_artists:
+                continue
+
             self.__track_find_cache[last_fm_track] = result
             return result
 
         self.__track_find_cache[last_fm_track] = None
         return None
 
+    def __get_album_artists(self, album_id: str) -> Set[str]:
+        if album_id in self.__album_artists_cache:
+            return self.__album_artists_cache[album_id]
+        album = self.__tidal.album(album_id)
+        result = {artist.name for artist in album.artists}
+        self.__album_artists_cache[album_id] = result
+        return result
+
     @staticmethod
     def __fix_last_fm_track(last_fm_track: LastFmTrack) -> LastFmTrack:
         title = last_fm_track.title
         artists = set(last_fm_track.artists)
-        
+
         with_or_featuring_pattern = r'\s*\([^)]*(?:with|ft.|feat\.?|featuring)\s+([^)]+)\)'
         matches = re.findall(with_or_featuring_pattern, title, re.IGNORECASE)
 
@@ -53,14 +67,14 @@ class Tidal:
                 artist = artist.strip()
                 if artist:
                     artists.add(artist)
-        
+
         cleaned_title = re.sub(with_or_featuring_pattern, '', title, flags=re.IGNORECASE)
 
         track_version_pattern = r'\s*\([^)]*(?:Album Version|Radio Edit|Single Version|Extended Version|Original Mix|Remix|Remastered|Explicit|Clean)\)'
         cleaned_title = re.sub(track_version_pattern, '', cleaned_title, flags=re.IGNORECASE)
-        
+
         cleaned_title = cleaned_title.strip()
-        
+
         return LastFmTrack(
             title=cleaned_title,
             artists=artists
