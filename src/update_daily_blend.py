@@ -21,7 +21,7 @@ def main(environment: Environment, tidal: Tidal, last_fm: LastFm) -> None:
             for last_fm_track in last_fm_tracks:
                 tidal_track = tidal.find_equivalent_track(last_fm_track)
                 if tidal_track:
-                    progress.write(f'\033[92m✓ {last_fm_track}\033[0m')
+                    progress.write(f'\033[92m✓ {last_fm_track} --> {tidal_track}\033[0m')
                     daily_blend_track_ids.append(str(tidal_track.id))
                 else:
                     progress.write(f'\033[91m✗ Failed to find: {last_fm_track}\033[0m')

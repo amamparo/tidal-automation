@@ -1,10 +1,8 @@
 from unittest import TestCase
 
-from tidalapi import Track
-
 from src.environment import Environment
 from src.last_fm import LastFmTrack
-from src.tidal import Tidal
+from src.tidal import Tidal, TidalTrack
 
 
 class LastFmMatching(TestCase):
@@ -18,7 +16,7 @@ class LastFmMatching(TestCase):
             {'Kid Cudi'}
         ))
 
-        self.assertEqual(track.name, "Can't Shake Her")
+        self.assertEqual(track.title, "Can't Shake Her")
         self.is_in_artists("Kid Cudi", track)
         self.is_in_artists("Ty Dolla $ign", track)
 
@@ -28,7 +26,7 @@ class LastFmMatching(TestCase):
             {'Chase & Status'}
         ))
 
-        self.assertEqual(track.name, 'Baddadan')
+        self.assertEqual(track.title, 'Baddadan')
         self.is_in_artists("Chase & Status", track)
         self.is_in_artists("Bou", track)
         self.is_in_artists("Irah", track)
@@ -42,7 +40,7 @@ class LastFmMatching(TestCase):
             {'Death From Above 1979'}
         ))
 
-        self.assertEqual(track.name, 'Romantic Rights')
+        self.assertEqual(track.title, 'Romantic Rights')
         self.is_in_artists("Death From Above 1979", track)
 
     def test_not_various_artists_album(self):
@@ -50,7 +48,7 @@ class LastFmMatching(TestCase):
             'Hey, Soul Sister',
             {'Train'}
         ))
-        self.assertTrue('Save Me, San Francisco' in track.album.name, track.album.name)
+        self.assertTrue('Save Me, San Francisco' in track.album, track.album)
 
     def test_use_various_artists_album_if_no_other_choice(self):
         track = self.tidal.find_equivalent_track(LastFmTrack(
@@ -58,14 +56,14 @@ class LastFmMatching(TestCase):
             {'Yeasayer'}
         ))
         self.assertIsNotNone(track)
-        self.assertTrue('Grand Theft Auto' in track.album.name)
+        self.assertTrue('Grand Theft Auto' in track.album)
 
     def test_use_og_selena_quintanilla_not_some_stupid_cover(self):
         track = self.tidal.find_equivalent_track(LastFmTrack(
             "I Could Fall In Love",
             {'Selena'}
         ))
-        self.assertEqual(track.name, "I Could Fall In Love")
+        self.assertEqual(track.title, "I Could Fall In Love")
         self.is_in_artists("Selena", track)
 
     def test_matt_and_kim(self):
@@ -74,7 +72,7 @@ class LastFmMatching(TestCase):
             {'Matt & Kim'}
         ))
 
-        self.assertEqual(track.name, 'Daylight')
+        self.assertEqual(track.title, 'Daylight')
         self.is_in_artists("Matt and Kim", track)
 
     def test_idk_why_last_fm_reggaeton_artists_are_always_comma_separated(self):
@@ -83,7 +81,7 @@ class LastFmMatching(TestCase):
             {'Bad Bunny, Chencho Corleone'}
         ))
 
-        self.assertEqual(track.name, 'Me Porto Bonito')
+        self.assertEqual(track.title, 'Me Porto Bonito')
         self.is_in_artists("Bad Bunny", track)
         self.is_in_artists("Chencho Corleone", track)
 
@@ -93,7 +91,7 @@ class LastFmMatching(TestCase):
             {'The Smashing Pumpkins'}
         ))
 
-        self.assertTrue('Today' in track.name)
+        self.assertTrue('Today' in track.title)
         self.is_in_artists("Smashing Pumpkins", track)
 
     def test_weird_brazillian_characters(self):
@@ -102,7 +100,7 @@ class LastFmMatching(TestCase):
             {'Bonde do Rolê'}
         ))
 
-        self.assertEqual('James Bonde', track.name)
+        self.assertEqual('James Bonde', track.title)
         self.is_in_artists("Bonde do Role", track)
 
     def test_ampersand_in_last_fm_artist(self):
@@ -111,19 +109,47 @@ class LastFmMatching(TestCase):
             {'Billy Bragg & Wilco'}
         ))
 
-        self.assertEqual('Ingrid Bergman', track.name)
+        self.assertEqual('Ingrid Bergman', track.title)
         self.is_in_artists("Wilco", track)
         self.is_in_artists("Billy Bragg", track)
 
-    def test_idk_why_this_is_failing(self):
+    def test_comma_in_single_artist_name(self):
         track = self.tidal.find_equivalent_track(LastFmTrack(
             'Battle Royale',
             {'Does It Offend You, Yeah?'}
         ))
 
-        self.assertTrue('Battle Royale' in track.name)
+        self.assertTrue('Battle Royale' in track.title)
         self.is_in_artists("Does It Offend You, Yeah?", track)
 
-    def is_in_artists(self, artist: str, tidal_track: Track):
-        tidal_artists = {artist.name.lower() for artist in tidal_track.artists}
+    def test_fixme_1(self):
+        track = self.tidal.find_equivalent_track(LastFmTrack(
+            'One Night/All Night',
+            {'Justice'}
+        ))
+
+        self.assertEqual('One Night/All Night', track.title)
+        self.is_in_artists("Justice", track)
+        self.is_in_artists("Tame Impala", track)
+
+    def test_fixme_2(self):
+        track = self.tidal.find_equivalent_track(LastFmTrack(
+            'Human',
+            {"Rag'n'Bone Man"}
+        ))
+
+        self.assertEqual('Human', track.title)
+        self.is_in_artists("Rag'n'Bone Man", track)
+
+    def test_fixme_3(self):
+        track = self.tidal.find_equivalent_track(LastFmTrack(
+            "Anywhere Away From Here (Rag’n’Bone Man & P!nk)",
+            {"Rag'n'Bone Man"}
+        ))
+        self.assertEqual('Anywhere Away from Here', track.title)
+        self.is_in_artists("Rag'n'Bone Man", track)
+        self.is_in_artists("P!Nk", track)
+
+    def is_in_artists(self, artist: str, tidal_track: TidalTrack):
+        tidal_artists = {artist.lower() for artist in tidal_track.artists}
         self.assertIn(artist.lower(), tidal_artists)

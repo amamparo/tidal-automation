@@ -1,15 +1,26 @@
 import re
 import time
+from dataclasses import dataclass
+
 import unicodedata
 from collections import deque
 from threading import Lock
 from typing import Set, List, Optional, Dict
 
 from injector import inject, singleton
-from tidalapi import Session, Track
+from tidalapi import Session, Track, Album
 
 from src.environment import Environment
 from src.last_fm import LastFmTrack
+
+
+@dataclass
+class TidalTrack:
+    id: str
+    title: str
+    artists: {str}
+    album: str
+
 
 @singleton
 class Tidal:
@@ -18,9 +29,9 @@ class Tidal:
         self.__tidal = Session()
         self.__tidal.token_refresh(environment.get('TIDAL_REFRESH_TOKEN'))
         self.__tidal.load_oauth_session('Bearer', self.__tidal.access_token)
-        self.__track_find_cache: Dict[LastFmTrack, Optional[Track]] = {}
-        self.__album_artists_cache: Dict[str, Set[str]] = {}
-        
+        self.__track_find_cache: Dict[LastFmTrack, Optional[TidalTrack]] = {}
+        self.__album_cache: Dict[str, Album] = {}
+
         # Rate limiting: max 5 requests per second
         self.__max_requests_per_second = 5
         self.__request_times = deque(maxlen=self.__max_requests_per_second)
@@ -30,18 +41,18 @@ class Tidal:
         """Enforce rate limiting - max 5 requests per second."""
         with self.__rate_limit_lock:
             now = time.time()
-            
+
             # Remove timestamps older than 1 second
             while self.__request_times and self.__request_times[0] < now - 1.0:
                 self.__request_times.popleft()
-            
+
             # If we've made 5 requests in the last second, wait
             if len(self.__request_times) >= self.__max_requests_per_second:
                 sleep_time = 1.0 - (now - self.__request_times[0])
                 if sleep_time > 0:
                     time.sleep(sleep_time)
                     now = time.time()
-            
+
             # Record this request
             self.__request_times.append(now)
 
@@ -54,7 +65,7 @@ class Tidal:
         playlist.clear()
         playlist.add(track_ids)
 
-    def find_equivalent_track(self, last_fm_track: LastFmTrack) -> Optional[Track]:
+    def find_equivalent_track(self, last_fm_track: LastFmTrack) -> Optional[TidalTrack]:
         if last_fm_track in self.__track_find_cache:
             return self.__track_find_cache[last_fm_track]
 
@@ -62,13 +73,17 @@ class Tidal:
 
         search_artists = []
         for artist in fixed.artists:
+            # Normalize for search: remove diacritics, replace & with space, remove punctuation
             artist_for_search = self.__remove_diacritics(artist.replace('&', ' '))
+            artist_for_search = re.sub(r'[^\w\s]', '', artist_for_search)  # Remove all punctuation
             if artist_for_search.lower().startswith('the '):
                 search_artists.append(artist_for_search[4:])
             else:
                 search_artists.append(artist_for_search)
-        
-        query = ' '.join(search_artists) + ' ' + self.__remove_diacritics(fixed.title)
+
+        # Normalize title for search too
+        title_for_search = re.sub(r'[^\w\s]', '', self.__remove_diacritics(fixed.title))
+        query = ' '.join(search_artists) + ' ' + title_for_search
         self.__rate_limit()
         results = self.__tidal.search(query, models=[Track])['tracks']
         various_artists_versions = []
@@ -77,13 +92,23 @@ class Tidal:
             if not any(self.__artists_match(artist, track_artists) for artist in fixed.artists):
                 continue
 
-            album_artists = self.__get_album_artists(str(result.album.id))
+            album = self.__get_album(str(result.album.id))
+
+            tidal_track = TidalTrack(
+                id=str(result.id),
+                title=result.name,
+                artists=track_artists,
+                album=album.name
+            )
+
+            album_artists = {artist.name for artist in album.artists}
+
             if not track_artists & album_artists:
-                various_artists_versions.append(result)
+                various_artists_versions.append(tidal_track)
                 continue
 
-            self.__track_find_cache[last_fm_track] = result
-            return result
+            self.__track_find_cache[last_fm_track] = tidal_track
+            return tidal_track
 
         if various_artists_versions:
             self.__track_find_cache[last_fm_track] = various_artists_versions[0]
@@ -92,26 +117,37 @@ class Tidal:
         self.__track_find_cache[last_fm_track] = None
         return None
 
-    def __get_album_artists(self, album_id: str) -> Set[str]:
-        if album_id in self.__album_artists_cache:
-            return self.__album_artists_cache[album_id]
+    def __get_album(self, album_id: str) -> Album:
+        if album_id in self.__album_cache:
+            return self.__album_cache[album_id]
         self.__rate_limit()
         album = self.__tidal.album(album_id)
-        result = {artist.name for artist in album.artists}
-        self.__album_artists_cache[album_id] = result
-        return result
+        self.__album_cache[album_id] = album
+        return album
 
     @staticmethod
     def __fix_last_fm_track(last_fm_track: LastFmTrack) -> LastFmTrack:
         title = last_fm_track.title
         artists = set()
-        
+
         for artist in last_fm_track.artists:
+            # Split on common separators, but also keep the original
+            # This way we try both approaches during matching
+            artists.add(artist)  # Always keep the original
+
+            # Also try splitting on comma (for cases like "Bad Bunny, Chencho Corleone")
             if ',' in artist:
-                for split_artist in artist.split(','):
-                    artists.add(split_artist.strip())
-            else:
-                artists.add(artist)
+                for part in artist.split(','):
+                    cleaned_part = part.strip()
+                    if cleaned_part:
+                        artists.add(cleaned_part)
+
+            # Also try splitting on & (for cases like "Billy Bragg & Wilco") 
+            if '&' in artist:
+                for part in artist.split('&'):
+                    cleaned_part = part.strip()
+                    if cleaned_part:
+                        artists.add(cleaned_part)
 
         with_or_featuring_pattern = r'\s*\([^)]*(?:with|ft.|feat\.?|featuring)\s+([^)]+)\)'
         matches = re.findall(with_or_featuring_pattern, title, re.IGNORECASE)
@@ -139,20 +175,34 @@ class Tidal:
     def __remove_diacritics(text: str) -> str:
         nfd_form = unicodedata.normalize('NFD', text)
         return ''.join(char for char in nfd_form if unicodedata.category(char) != 'Mn')
-    
+
+    @staticmethod
+    def __normalize_artist_name(name: str) -> str:
+        """Normalize artist name for comparison."""
+        # Remove diacritics, convert to lowercase, remove all punctuation, normalize spacing
+        normalized = Tidal.__remove_diacritics(name.lower().strip())
+        normalized = re.sub(r'[^\w\s]', '', normalized)  # Remove all punctuation
+        normalized = re.sub(r'\s+', ' ', normalized).strip()  # Normalize whitespace
+        # Treat & and "and" as equivalent
+        normalized = normalized.replace(' and ', ' ').replace('&', '')
+        return normalized
+
     @staticmethod
     def __artists_match(artist: str, track_artists: Set[str]) -> bool:
-        normalized_artist = Tidal.__remove_diacritics(artist.replace('&', 'and').lower().strip())
-        
-        artist_without_the = normalized_artist[4:] if normalized_artist.startswith('the ') else normalized_artist
-        artist_with_the = 'the ' + normalized_artist if not normalized_artist.startswith('the ') else normalized_artist
-        
+        """Check if artist matches any in track_artists."""
+        normalized_artist = Tidal.__normalize_artist_name(artist)
+
+        # Also try without "the" prefix
+        artist_variants = [normalized_artist]
+        if normalized_artist.startswith('the '):
+            artist_variants.append(normalized_artist[4:])
+        else:
+            artist_variants.append('the ' + normalized_artist)
+
         for track_artist in track_artists:
-            normalized_track_artist = Tidal.__remove_diacritics(track_artist.replace('&', 'and').lower().strip())
-            
-            # Check exact match or match with/without "The" prefix
-            if (normalized_artist == normalized_track_artist or 
-                artist_without_the == normalized_track_artist or
-                artist_with_the == normalized_track_artist):
+            normalized_track_artist = Tidal.__normalize_artist_name(track_artist)
+
+            # Check if any variant matches
+            if any(variant == normalized_track_artist for variant in artist_variants):
                 return True
         return False
