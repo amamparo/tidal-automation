@@ -1,5 +1,6 @@
 from random import shuffle
 from typing import Optional
+import time
 
 from injector import inject, Injector
 from tqdm import tqdm
@@ -43,4 +44,7 @@ def lambda_handler(event: Optional[dict] = None, context: Optional[dict] = None)
 
 
 if __name__ == '__main__':
+    start_time = time.time()
     lambda_handler()
+    elapsed_time = time.time() - start_time
+    print(f'\n\033[94mTotal time: {elapsed_time:.2f} seconds\033[0m')
