@@ -38,4 +38,4 @@ class LastFmMatching(TestCase):
 
     def is_in_artists(self, artist: str, tidal_track: Track):
         tidal_artists = {artist.name.lower() for artist in tidal_track.artists}
-        self.assertIn(artist.lower, tidal_artists)
+        self.assertIn(artist.lower(), tidal_artists)

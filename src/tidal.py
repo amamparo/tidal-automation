@@ -1,3 +1,4 @@
+import re
 from typing import Set, List, Optional, Dict
 
 from injector import inject
@@ -27,7 +28,9 @@ class Tidal:
         if last_fm_track in self.__track_find_cache:
             return self.__track_find_cache[last_fm_track]
 
-        query = ' '.join(last_fm_track.artists) + ' ' + last_fm_track.title
+        fixed = self.__fix_last_fm_track(last_fm_track)
+
+        query = ' '.join(fixed.artists) + ' ' + fixed.title
         results = self.__tidal.search(query, models=[Track])['tracks']
         for result in results:
             self.__track_find_cache[last_fm_track] = result
@@ -35,3 +38,26 @@ class Tidal:
 
         self.__track_find_cache[last_fm_track] = None
         return None
+
+    @staticmethod
+    def __fix_last_fm_track(last_fm_track: LastFmTrack) -> LastFmTrack:
+        title = last_fm_track.title
+        artists = set(last_fm_track.artists)
+        
+        pattern = r'\s*\([^)]*(?:with|feat\.?|featuring)\s+([^)]+)\)'
+        matches = re.findall(pattern, title, re.IGNORECASE)
+
+        for match in matches:
+            artist_names = re.split(r'\s*[&,]\s*|\s+and\s+', match)
+            for artist in artist_names:
+                artist = artist.strip()
+                if artist:
+                    artists.add(artist)
+        
+        cleaned_title = re.sub(r'\s*\([^)]*(?:with|feat\.?|featuring)[^)]*\)', '', title, flags=re.IGNORECASE)
+        cleaned_title = cleaned_title.strip()
+        
+        return LastFmTrack(
+            title=cleaned_title,
+            artists=artists
+        )
