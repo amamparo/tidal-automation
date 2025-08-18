@@ -80,7 +80,7 @@ class LastFmMatching(TestCase):
     def test_idk_why_last_fm_reggaeton_artists_are_always_comma_separated(self):
         track = self.tidal.find_equivalent_track(LastFmTrack(
             'Me Porto Bonito',
-            {'Bad Bunny', 'Chencho Corleone'}
+            {'Bad Bunny, Chencho Corleone'}
         ))
 
         self.assertEqual(track.name, 'Me Porto Bonito')
