@@ -44,7 +44,7 @@ class Tidal:
         title = last_fm_track.title
         artists = set(last_fm_track.artists)
         
-        with_or_featuring_pattern = r'\s*\([^)]*(?:with|feat\.?|featuring)\s+([^)]+)\)'
+        with_or_featuring_pattern = r'\s*\([^)]*(?:with|ft.|feat\.?|featuring)\s+([^)]+)\)'
         matches = re.findall(with_or_featuring_pattern, title, re.IGNORECASE)
 
         for match in matches:
