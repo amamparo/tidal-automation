@@ -32,7 +32,7 @@ class Tidal:
         self.__track_find_cache: Dict[LastFmTrack, Optional[TidalTrack]] = {}
         self.__album_cache: Dict[str, Album] = {}
 
-        self.__max_requests_per_second = 1
+        self.__max_requests_per_second = 2
         self.__request_times = deque(maxlen=self.__max_requests_per_second)
         self.__rate_limit_lock = Lock()
 
