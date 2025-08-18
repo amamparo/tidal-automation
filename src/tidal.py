@@ -32,7 +32,14 @@ class Tidal:
 
         fixed = self.__fix_last_fm_track(last_fm_track)
 
-        search_artists = [artist.replace('&', ' ') for artist in fixed.artists]
+        search_artists = []
+        for artist in fixed.artists:
+            artist_for_search = artist.replace('&', ' ')
+            if artist_for_search.lower().startswith('the '):
+                search_artists.append(artist_for_search[4:])
+            else:
+                search_artists.append(artist_for_search)
+        
         query = ' '.join(search_artists) + ' ' + fixed.title
         results = self.__tidal.search(query, models=[Track])['tracks']
         various_artists_versions = []
@@ -104,9 +111,17 @@ class Tidal:
         # Normalize the artist name by replacing '&' with 'and'
         normalized_artist = artist.replace('&', 'and').lower().strip()
         
+        # Also create version without "The" prefix for comparison
+        artist_without_the = normalized_artist[4:] if normalized_artist.startswith('the ') else normalized_artist
+        artist_with_the = 'the ' + normalized_artist if not normalized_artist.startswith('the ') else normalized_artist
+        
         for track_artist in track_artists:
             # Normalize the track artist name
             normalized_track_artist = track_artist.replace('&', 'and').lower().strip()
-            if normalized_artist == normalized_track_artist:
+            
+            # Check exact match or match with/without "The" prefix
+            if (normalized_artist == normalized_track_artist or 
+                artist_without_the == normalized_track_artist or
+                artist_with_the == normalized_track_artist):
                 return True
         return False
