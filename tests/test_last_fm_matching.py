@@ -87,6 +87,15 @@ class LastFmMatching(TestCase):
         self.is_in_artists("Bad Bunny", track)
         self.is_in_artists("Chencho Corleone", track)
 
+    def test_the_the(self):
+        track = self.tidal.find_equivalent_track(LastFmTrack(
+            'Today',
+            {'The Smashing Pumpkins'}
+        ))
+
+        self.assertEqual(track.name, 'Today')
+        self.is_in_artists("Smashing Pumpkins", track)
+
     def is_in_artists(self, artist: str, tidal_track: Track):
         tidal_artists = {artist.name.lower() for artist in tidal_track.artists}
         self.assertIn(artist.lower(), tidal_artists)

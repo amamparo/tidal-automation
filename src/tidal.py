@@ -28,10 +28,10 @@ class Tidal:
     def find_equivalent_track(self, last_fm_track: LastFmTrack) -> Optional[Track]:
         if last_fm_track in self.__track_find_cache:
             return self.__track_find_cache[last_fm_track]
+        print(f'Finding equivalent track for: {last_fm_track}')
 
         fixed = self.__fix_last_fm_track(last_fm_track)
 
-        # Replace & with space in artists for search query
         search_artists = [artist.replace('&', ' ') for artist in fixed.artists]
         query = ' '.join(search_artists) + ' ' + fixed.title
         results = self.__tidal.search(query, models=[Track])['tracks']
