@@ -1,13 +1,13 @@
 import re
 from typing import Set, List, Optional, Dict
 
-from injector import inject
+from injector import inject, singleton
 from tidalapi import Session, Track
 
 from src.environment import Environment
 from src.last_fm import LastFmTrack
 
-
+@singleton
 class Tidal:
     @inject
     def __init__(self, environment: Environment):
