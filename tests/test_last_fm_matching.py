@@ -52,6 +52,14 @@ class LastFmMatching(TestCase):
         ))
         self.assertTrue('Save Me, San Francisco' in track.album.name, track.album.name)
 
+    def test_use_various_artists_album_if_no_other_choice(self):
+        track = self.tidal.find_equivalent_track(LastFmTrack(
+            "Don't Come Close",
+            {'Yeasayer'}
+        ))
+        self.assertIsNotNone(track)
+        self.assertTrue('Grand Theft Auto' in track.album.name)
+
     def is_in_artists(self, artist: str, tidal_track: Track):
         tidal_artists = {artist.name.lower() for artist in tidal_track.artists}
         self.assertIn(artist.lower(), tidal_artists)

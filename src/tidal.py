@@ -33,13 +33,19 @@ class Tidal:
 
         query = ' '.join(fixed.artists) + ' ' + fixed.title
         results = self.__tidal.search(query, models=[Track])['tracks']
+        various_artists_versions = []
         for result in results:
             album_artists = self.__get_album_artists(str(result.album.id))
             if 'Various Artists' in album_artists:
+                various_artists_versions.append(result)
                 continue
 
             self.__track_find_cache[last_fm_track] = result
             return result
+
+        if various_artists_versions:
+            self.__track_find_cache[last_fm_track] = various_artists_versions[0]
+            return various_artists_versions[0]
 
         self.__track_find_cache[last_fm_track] = None
         return None
