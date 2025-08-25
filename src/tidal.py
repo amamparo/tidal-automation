@@ -59,6 +59,10 @@ class Tidal:
         self.__rate_limit()
         return [str(x.id) for x in self.__tidal.mix(mix_id).items()]
 
+    def get_playlist_track_ids(self, playlist_id: str) -> List[str]:
+        playlist = self.__tidal.playlist(playlist_id)
+        return [str(x.id) for x in playlist.items()]
+
     def set_playlist_tracks(self, playlist_id: str, track_ids: List[str]) -> None:
         playlist = self.__tidal.playlist(playlist_id)
         playlist.clear()
@@ -88,7 +92,7 @@ class Tidal:
         results = self.__tidal.search(query, models=[Track])['tracks']
         various_artists_versions = []
         regular_versions = []
-        
+
         for result in results:
             track_artists = {artist.name for artist in result.artists}
             if not any(self.__artists_match(artist, track_artists) for artist in fixed.artists):
@@ -122,7 +126,7 @@ class Tidal:
         if regular_versions:
             self.__track_find_cache[last_fm_track] = regular_versions[0]
             return regular_versions[0]
-            
+
         # Otherwise return Various Artists compilations
         if various_artists_versions:
             self.__track_find_cache[last_fm_track] = various_artists_versions[0]
