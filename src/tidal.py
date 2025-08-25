@@ -66,7 +66,7 @@ class Tidal:
     def set_playlist_tracks(self, playlist_id: str, track_ids: List[str]) -> None:
         playlist = self.__tidal.playlist(playlist_id)
         playlist.clear()
-        playlist.add(track_ids)
+        playlist.add(track_ids, limit=len(track_ids))
 
     def find_equivalent_track(self, last_fm_track: LastFmTrack) -> Optional[TidalTrack]:
         if last_fm_track in self.__track_find_cache:
