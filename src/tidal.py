@@ -5,6 +5,7 @@ from dataclasses import dataclass
 import unicodedata
 from collections import deque
 from threading import Lock
+from time import sleep
 from typing import Set, List, Optional, Dict
 
 from injector import inject, singleton
@@ -66,6 +67,7 @@ class Tidal:
     def set_playlist_tracks(self, playlist_id: str, track_ids: List[str]) -> None:
         playlist = self.__tidal.playlist(playlist_id)
         playlist.clear()
+        sleep(1)
         playlist.add(track_ids, limit=len(track_ids))
 
     def find_equivalent_track(self, last_fm_track: LastFmTrack) -> Optional[TidalTrack]:
