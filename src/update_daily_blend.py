@@ -33,25 +33,28 @@ def main(environment: Environment, tidal: Tidal, last_fm: LastFm) -> None:
 
     daily_blend_playlist_id = environment.get('DAILY_BLEND_PLAYLIST_ID')
     existing_daily_blend_tracks = tidal.get_playlist_tracks(daily_blend_playlist_id)
-    existing_daily_blend_artists = {
-        artist.name for track in existing_daily_blend_tracks for artist in track.artists
-    }
-
-    roulette_wheel = []
-    for track in set(new_arrivals | last_fm_tracks):
-        roulette_wheel.append(track)
-        if track not in existing_daily_blend_tracks:
-            roulette_wheel.append(track)
-            if any(artist.name not in existing_daily_blend_artists for artist in track.artists):
-                roulette_wheel.append(track)
 
     new_daily_blend_tracks = tidal.get_mix_tracks(environment.get('DAILY_DISCOVER_MIX_ID'))
-    shuffle(roulette_wheel)
-    while roulette_wheel and len(new_daily_blend_tracks) < daily_blend_size:
-        track = roulette_wheel.pop()
-        roulette_wheel = [x for x in roulette_wheel if x != track]
-        if track not in new_daily_blend_tracks:
-            new_daily_blend_tracks.add(track)
+    while len(new_daily_blend_tracks) < daily_blend_size:
+        remaining_tracks = (new_arrivals | last_fm_tracks) - new_daily_blend_tracks
+        if not remaining_tracks:
+            break
+
+        seen_artists = {
+            artist.name for track in (existing_daily_blend_tracks | new_daily_blend_tracks) for artist in track.artists
+        }
+
+        roulette_wheel = []
+        for track in remaining_tracks:
+            multiplier = 1
+            if track not in existing_daily_blend_tracks:
+                multiplier += 1
+            if any(artist.name not in seen_artists for artist in track.artists):
+                multiplier += 2
+            roulette_wheel.extend([track] * multiplier)
+
+        shuffle(roulette_wheel)
+        new_daily_blend_tracks.add(roulette_wheel.pop())
 
     new_daily_blend_track_ids = [str(x.id) for x in new_daily_blend_tracks]
     shuffle(new_daily_blend_track_ids)
