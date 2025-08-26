@@ -1,5 +1,5 @@
 from dataclasses import dataclass
-from typing import Set
+from typing import Set, List
 
 import requests
 from injector import inject
@@ -24,8 +24,8 @@ class LastFm:
     def __init__(self):
         pass
 
-    def get_mix(self, _type: str) -> Set[LastFmTrack]:
+    def get_mix(self, _type: str) -> List[LastFmTrack]:
         playlist = requests.get(
             f'https://www.last.fm/player/station/user/amamparo/{_type}?page=1&ajax=1'
         ).json()['playlist']
-        return {LastFmTrack(title=x['name'], artists={a['name'] for a in x['artists']}) for x in playlist}
+        return [LastFmTrack(title=x['name'], artists={a['name'] for a in x['artists']}) for x in playlist]

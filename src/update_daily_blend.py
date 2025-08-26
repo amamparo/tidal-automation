@@ -14,38 +14,46 @@ daily_blend_size = 100
 
 @inject
 def main(environment: Environment, tidal: Tidal, last_fm: LastFm) -> None:
-    new_arrivals_track_ids = tidal.get_mix_track_ids(environment.get('NEW_ARRIVALS_MIX_ID'))
-    last_fm_track_ids = []
+    new_arrivals = tidal.get_mix_tracks(environment.get('NEW_ARRIVALS_MIX_ID'))
+    last_fm_tracks = set()
     for mix_type in ['recommended', 'mix', 'library']:
-        last_fm_tracks = last_fm.get_mix(mix_type)
-        with tqdm(total=len(last_fm_tracks), desc=f'Scanning last.fm {mix_type}') as progress:
-            for last_fm_track in last_fm_tracks:
-                progress.write(f'> {last_fm_track}')
-                tidal_track = tidal.find_equivalent_track(last_fm_track)
+        mix_tracks = last_fm.get_mix(mix_type)
+        with tqdm(total=len(mix_tracks), desc=f'Scanning last.fm {mix_type}') as progress:
+            for mix_track in mix_tracks:
+                progress.write(f'> {mix_track}')
+                tidal_track = tidal.find_equivalent_track(mix_track)
                 if tidal_track:
-                    progress.write(f'\033[92m✓ {tidal_track}\033[0m')
-                    last_fm_track_ids.append(str(tidal_track.id))
+                    progress.write(
+                        f'\033[92m✓ {tidal_track.name} - {", ".join([x.name for x in tidal_track.artists])}\033[0m'
+                    )
+                    last_fm_tracks.add(tidal_track)
                 else:
-                    progress.write(f'\033[91m✗ Failed to find: {last_fm_track}\033[0m')
+                    progress.write(f'\033[91m✗ Failed to find: {mix_track}\033[0m')
                 progress.update(1)
 
     daily_blend_playlist_id = environment.get('DAILY_BLEND_PLAYLIST_ID')
-    existing_daily_blend_track_ids = tidal.get_playlist_track_ids(daily_blend_playlist_id)
+    existing_daily_blend_tracks = tidal.get_playlist_tracks(daily_blend_playlist_id)
+    existing_daily_blend_artists = {
+        artist.name for track in existing_daily_blend_tracks for artist in track.artists
+    }
+
     roulette_wheel = []
-    for track_id in list(set(new_arrivals_track_ids + last_fm_track_ids)):
-        if track_id in existing_daily_blend_track_ids:
-            roulette_wheel.append(track_id)
-        else:
-            roulette_wheel.extend([track_id] * 2)
+    for track in set(new_arrivals | last_fm_tracks):
+        roulette_wheel.append(track)
+        if track not in existing_daily_blend_tracks:
+            roulette_wheel.append(track)
+            if any(artist.name not in existing_daily_blend_artists for artist in track.artists):
+                roulette_wheel.append(track)
 
-    new_daily_blend_track_ids = tidal.get_mix_track_ids(environment.get('DAILY_DISCOVER_MIX_ID'))
+    new_daily_blend_tracks = tidal.get_mix_tracks(environment.get('DAILY_DISCOVER_MIX_ID'))
     shuffle(roulette_wheel)
-    while roulette_wheel and len(new_daily_blend_track_ids) < daily_blend_size:
-        track_id = roulette_wheel.pop()
-        roulette_wheel = [x for x in roulette_wheel if x != track_id]
-        if track_id not in new_daily_blend_track_ids:
-            new_daily_blend_track_ids.append(track_id)
+    while roulette_wheel and len(new_daily_blend_tracks) < daily_blend_size:
+        track = roulette_wheel.pop()
+        roulette_wheel = [x for x in roulette_wheel if x != track]
+        if track not in new_daily_blend_tracks:
+            new_daily_blend_tracks.add(track)
 
+    new_daily_blend_track_ids = [str(x.id) for x in new_daily_blend_tracks]
     shuffle(new_daily_blend_track_ids)
 
     tidal.set_playlist_tracks(daily_blend_playlist_id, new_daily_blend_track_ids)

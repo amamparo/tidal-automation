@@ -1,6 +1,5 @@
 import re
 import time
-from dataclasses import dataclass
 
 import unicodedata
 from collections import deque
@@ -15,14 +14,6 @@ from src.environment import Environment
 from src.last_fm import LastFmTrack
 
 
-@dataclass
-class TidalTrack:
-    id: str
-    title: str
-    artists: {str}
-    album: str
-
-
 @singleton
 class Tidal:
     @inject
@@ -30,7 +21,7 @@ class Tidal:
         self.__tidal = Session()
         self.__tidal.token_refresh(environment.get('TIDAL_REFRESH_TOKEN'))
         self.__tidal.load_oauth_session('Bearer', self.__tidal.access_token)
-        self.__track_find_cache: Dict[LastFmTrack, Optional[TidalTrack]] = {}
+        self.__track_find_cache: Dict[LastFmTrack, Optional[Track]] = {}
         self.__album_cache: Dict[str, Album] = {}
 
         self.__max_requests_per_second = 1
@@ -56,13 +47,19 @@ class Tidal:
             # Record this request
             self.__request_times.append(now)
 
-    def get_mix_track_ids(self, mix_id: str) -> List[str]:
+    def get_mix_track_ids(self, mix_id: str) -> Set[str]:
+        return {str(x.id) for x in self.get_mix_tracks(mix_id)}
+
+    def get_mix_tracks(self, mix_id: str) -> Set[Track]:
         self.__rate_limit()
-        return [str(x.id) for x in self.__tidal.mix(mix_id).items()]
+        return set(self.__tidal.mix(mix_id).items())
+
+    def get_playlist_tracks(self, playlist_id: str) -> Set[Track]:
+        self.__rate_limit()
+        return set(self.__tidal.playlist(playlist_id).items())
 
     def get_playlist_track_ids(self, playlist_id: str) -> List[str]:
-        playlist = self.__tidal.playlist(playlist_id)
-        return [str(x.id) for x in playlist.items()]
+        return [str(x.id) for x in self.get_playlist_tracks(playlist_id)]
 
     def set_playlist_tracks(self, playlist_id: str, track_ids: List[str]) -> None:
         playlist = self.__tidal.playlist(playlist_id)
@@ -70,7 +67,7 @@ class Tidal:
         sleep(1)
         playlist.add(track_ids, limit=len(track_ids))
 
-    def find_equivalent_track(self, last_fm_track: LastFmTrack) -> Optional[TidalTrack]:
+    def find_equivalent_track(self, last_fm_track: LastFmTrack) -> Optional[Track]:
         if last_fm_track in self.__track_find_cache:
             return self.__track_find_cache[last_fm_track]
 
@@ -102,27 +99,20 @@ class Tidal:
 
             album = self.__get_album(str(result.album.id))
 
-            tidal_track = TidalTrack(
-                id=str(result.id),
-                title=result.name,
-                artists=track_artists,
-                album=album.name
-            )
-
             album_artists = {artist.name for artist in album.artists}
 
             if not track_artists & album_artists:
-                various_artists_versions.append(tidal_track)
+                various_artists_versions.append(result)
                 continue
 
             # Check if the album artist matches our search artist (prefer originals over covers)
             if any(self.__artists_match(artist, album_artists) for artist in fixed.artists):
                 # This is likely the original version
-                self.__track_find_cache[last_fm_track] = tidal_track
-                return tidal_track
+                self.__track_find_cache[last_fm_track] = result
+                return result
             else:
                 # This might be a cover or tribute album
-                regular_versions.append(tidal_track)
+                regular_versions.append(result)
 
         # Return regular versions if we have them (non-Various Artists albums)
         if regular_versions:
