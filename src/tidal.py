@@ -76,6 +76,9 @@ class Tidal:
         # Build search query from artists and title
         search_artists = []
         for artist in fixed.artists:
+            # Skip the original unsplit version if it contains "vs." or "versus"
+            if ' vs. ' in artist.lower() or ' versus ' in artist.lower():
+                continue
             # Normalize for search: remove diacritics and replace & with space
             artist_for_search = self.__remove_diacritics(artist.replace('&', ' '))
             # Keep the artist as-is mostly, just clean up for search
@@ -158,8 +161,18 @@ class Tidal:
                     cleaned_part = part.strip()
                     if cleaned_part:
                         artists.add(cleaned_part)
+            
+            # Also try splitting on "vs." or "versus" (for cases like "Mason vs. Princess Superstar")
+            # But don't split if the whole artist name is just "Versus"
+            if artist.lower() != 'versus' and (' vs. ' in artist.lower() or ' versus ' in artist.lower()):
+                # Split on both "vs." and "versus" (case-insensitive)
+                parts = re.split(r'\s+(?:vs\.?|versus)\s+', artist, flags=re.IGNORECASE)
+                for part in parts:
+                    cleaned_part = part.strip()
+                    if cleaned_part:
+                        artists.add(cleaned_part)
 
-        # Extract artists from titles with patterns like "(Artist1 & Artist2)" or "(feat. Artist)"
+        # Extract artists from titles with patterns like "(Artist1 & Artist2)" or "(feat. Artist)" or "Artist1 vs. Artist2"
         collaboration_pattern = r'\s*\([^)]*(?:with|ft\.?|feat\.?|featuring|&)[^)]*\)'
         matches = re.findall(r'\(([^)]*(?:with|ft\.?|feat\.?|featuring|&)[^)]*)\)', title, re.IGNORECASE)
 
@@ -174,6 +187,20 @@ class Tidal:
 
         # Remove collaboration parentheses from title
         cleaned_title = re.sub(collaboration_pattern, '', title, flags=re.IGNORECASE)
+        
+        # Extract artists from titles with "vs." or "versus" patterns (case-insensitive)
+        # Match patterns like "Artist1 vs. Artist2" or "Artist1 versus Artist2" in the title
+        vs_pattern = r'\b(\w[^()]*?)\s+(?:vs\.?|versus)\s+(\w[^()]*?)(?:\s*\(|$)'
+        vs_matches = re.findall(vs_pattern, title, re.IGNORECASE)
+        
+        for match in vs_matches:
+            # Add both artists found in the vs/versus pattern
+            artist1 = match[0].strip()
+            artist2 = match[1].strip()
+            if artist1:
+                artists.add(artist1)
+            if artist2:
+                artists.add(artist2)
 
         track_version_pattern = r'\s*\([^)]*(?:Album Version|Radio Edit|Single Version|Extended Version|Original Mix|Remix|Remastered|Explicit|Clean)\)'
         cleaned_title = re.sub(track_version_pattern, '', cleaned_title, flags=re.IGNORECASE)

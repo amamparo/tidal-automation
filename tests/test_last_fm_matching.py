@@ -160,7 +160,15 @@ class LastFmMatching(TestCase):
         self.assertEqual('Como La Flor', track.name)
         self.is_in_artists("Selena", track)
 
-    def test_versus_artists(self):
+    def test_versus_blade_of_grass(self):
+        track = self.tidal.find_equivalent_track(LastFmTrack(
+            "Blade of Grass",
+            {"Versus"}
+        ))
+        self.assertEqual('Blade of Grass', track.name)
+        self.is_in_artists("Versus", track)
+
+    def test_artist_vs_artist(self):
         track = self.tidal.find_equivalent_track(LastFmTrack(
             "Perfect (Exceeder)",
             {"Mason vs. Princess Superstar"}
@@ -168,6 +176,23 @@ class LastFmMatching(TestCase):
         self.assertEqual('Perfect (Exceeder)', track.name)
         self.is_in_artists("Mason", track)
         self.is_in_artists("Princess Superstar", track)
+
+    def test_artist_versus_artist(self):
+        track = self.tidal.find_equivalent_track(LastFmTrack(
+            "Perfect (Exceeder)",
+            {"Mason versus Princess Superstar"}
+        ))
+        self.assertEqual('Perfect (Exceeder)', track.name)
+        self.is_in_artists("Mason", track)
+        self.is_in_artists("Princess Superstar", track)
+
+    def test_joy_division_wilderness_2019_remaster(self):
+        track = self.tidal.find_equivalent_track(LastFmTrack(
+            "Wilderness - 2019 Remaster",
+            {"Joy Division"}
+        ))
+        self.assertTrue(track.name.startswith('Wilderness'), track.name)
+        self.is_in_artists("Joy Division", track)
 
     def is_in_artists(self, artist: str, track: Track):
         tidal_artists = {artist.name.lower() for artist in track.artists}
