@@ -203,6 +203,14 @@ class LastFmMatching(TestCase):
         self.is_in_artists("Will.I.Am", track)
         self.is_in_artists("Britney Spears", track)
 
+    def test_raise_your_weapon(self):
+        track = self.tidal.find_equivalent_track(LastFmTrack(
+            "Raise Your Weapon",
+            {"deadmau5"}
+        ))
+        self.assertTrue(track.name.startswith('Raise Your Weapon'), track.name)
+        self.assertEqual("deadmau5", track.artists[0].name)
+
     def is_in_artists(self, artist: str, track: Track):
         tidal_artists = {artist.name.lower() for artist in track.artists}
         self.assertIn(artist.lower(), tidal_artists)

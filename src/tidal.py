@@ -112,9 +112,19 @@ class Tidal:
 
             # Check if the album artist matches our search artist (prefer originals over covers)
             if any(self.__artists_match(artist, album_artists) for artist in fixed.artists):
-                # This is likely the original version
-                self.__track_find_cache[last_fm_track] = result
-                return result
+                # Check if the first artist is one we searched for (to avoid remixes where searched artist is secondary)
+                first_artist_matches = False
+                if result.artists:
+                    first_artist_name = result.artists[0].name
+                    first_artist_matches = any(self.__artists_match(artist, {first_artist_name}) for artist in fixed.artists)
+                
+                if first_artist_matches:
+                    # This is likely the original version with our artist as primary
+                    self.__track_find_cache[last_fm_track] = result
+                    return result
+                else:
+                    # Our artist is present but not primary - might be a remix
+                    regular_versions.append(result)
             else:
                 # This might be a cover or tribute album
                 regular_versions.append(result)
