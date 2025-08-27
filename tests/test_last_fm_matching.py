@@ -194,6 +194,15 @@ class LastFmMatching(TestCase):
         self.assertTrue(track.name.startswith('Wilderness'), track.name)
         self.is_in_artists("Joy Division", track)
 
+    def test_scream_and_shout(self):
+        track = self.tidal.find_equivalent_track(LastFmTrack(
+            "Scream & Shout",
+            {"Will.I.Am feat. Britney Spears"}
+        ))
+        self.assertEqual('Scream & Shout', track.name)
+        self.is_in_artists("Will.I.Am", track)
+        self.is_in_artists("Britney Spears", track)
+
     def is_in_artists(self, artist: str, track: Track):
         tidal_artists = {artist.name.lower() for artist in track.artists}
         self.assertIn(artist.lower(), tidal_artists)

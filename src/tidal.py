@@ -76,8 +76,10 @@ class Tidal:
         # Build search query from artists and title
         search_artists = []
         for artist in fixed.artists:
-            # Skip the original unsplit version if it contains "vs." or "versus"
-            if ' vs. ' in artist.lower() or ' versus ' in artist.lower():
+            # Skip the original unsplit version if it contains "vs.", "versus", "feat." or "featuring"
+            artist_lower = artist.lower()
+            if (' vs. ' in artist_lower or ' versus ' in artist_lower or 
+                ' feat.' in artist_lower or ' featuring ' in artist_lower):
                 continue
             # Normalize for search: remove diacritics and replace & with space
             artist_for_search = self.__remove_diacritics(artist.replace('&', ' '))
@@ -171,6 +173,18 @@ class Tidal:
                     cleaned_part = part.strip()
                     if cleaned_part:
                         artists.add(cleaned_part)
+            
+            # Also try splitting on "feat." or "featuring" (for cases like "Will.I.Am feat. Britney Spears")
+            if re.search(r'\s+(?:feat\.?|featuring)\s+', artist, re.IGNORECASE):
+                # Split on feat./featuring and extract all artists
+                parts = re.split(r'\s+(?:feat\.?|featuring)\s+', artist, flags=re.IGNORECASE)
+                for part in parts:
+                    # Further split on common separators within the featured section
+                    sub_parts = re.split(r'\s*[,&]\s*|\s+and\s+', part)
+                    for sub_part in sub_parts:
+                        cleaned_part = sub_part.strip()
+                        if cleaned_part:
+                            artists.add(cleaned_part)
 
         # Extract artists from titles with patterns like "(Artist1 & Artist2)" or "(feat. Artist)" or "Artist1 vs. Artist2"
         collaboration_pattern = r'\s*\([^)]*(?:with|ft\.?|feat\.?|featuring|&)[^)]*\)'
