@@ -204,6 +204,10 @@ class Tidal:
 
         track_version_pattern = r'\s*\([^)]*(?:Album Version|Radio Edit|Single Version|Extended Version|Original Mix|Remix|Remastered|Explicit|Clean)\)'
         cleaned_title = re.sub(track_version_pattern, '', cleaned_title, flags=re.IGNORECASE)
+        
+        # Also remove version info separated by dash (e.g., "Song Title - 2019 Remaster")
+        dash_version_pattern = r'\s*-\s*\d{4}\s+Remaster(?:ed)?'
+        cleaned_title = re.sub(dash_version_pattern, '', cleaned_title, flags=re.IGNORECASE)
 
         cleaned_title = cleaned_title.strip()
 

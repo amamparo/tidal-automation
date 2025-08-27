@@ -48,9 +48,9 @@ def main(environment: Environment, tidal: Tidal, last_fm: LastFm) -> None:
         for track in remaining_tracks:
             multiplier = 1
             if track not in existing_daily_blend_tracks:
-                multiplier += 1
-            if any(artist.name not in seen_artists for artist in track.artists):
                 multiplier += 2
+            if any(artist.name not in seen_artists for artist in track.artists):
+                multiplier += 3
             roulette_wheel.extend([track] * multiplier)
 
         shuffle(roulette_wheel)
