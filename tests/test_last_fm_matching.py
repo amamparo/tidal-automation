@@ -211,6 +211,14 @@ class LastFmMatching(TestCase):
         self.assertTrue(track.name.startswith('Raise Your Weapon'), track.name)
         self.assertEqual("deadmau5", track.artists[0].name)
 
+    def test_soul_purge_current_value_remix(self):
+        track = self.tidal.find_equivalent_track(LastFmTrack(
+            "Soul Purge (Current Value Remix)",
+            {"Noisia"}
+        ))
+        self.assertEqual("Soul Purge (Current Value Remix)", track.name)
+        self.is_in_artists("Noisia", track)
+
     def is_in_artists(self, artist: str, track: Track):
         tidal_artists = {artist.name.lower() for artist in track.artists}
         self.assertIn(artist.lower(), tidal_artists)
