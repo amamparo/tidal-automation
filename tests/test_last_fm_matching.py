@@ -216,7 +216,8 @@ class LastFmMatching(TestCase):
             "Soul Purge (Current Value Remix)",
             {"Noisia"}
         ))
-        self.assertEqual("Soul Purge (Current Value Remix)", track.name)
+        self.assertEqual("Soul Purge", track.name)
+        self.assertEqual("Current Value Remix", track.version)
         self.is_in_artists("Noisia", track)
 
     def is_in_artists(self, artist: str, track: Track):

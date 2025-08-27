@@ -226,8 +226,12 @@ class Tidal:
             if artist2:
                 artists.add(artist2)
 
-        track_version_pattern = r'\s*\([^)]*(?:Album Version|Radio Edit|Single Version|Extended Version|Original Mix|Remix|Remastered|Explicit|Clean)\)'
+        track_version_pattern = r'\s*\((?:Album Version|Radio Edit|Single Version|Extended Version|Original Mix|Remastered|Explicit|Clean)\)'
         cleaned_title = re.sub(track_version_pattern, '', cleaned_title, flags=re.IGNORECASE)
+        
+        # Remove generic remix indicators but preserve specific remixer names
+        generic_remix_pattern = r'\s*\((?:Remix|Mix)\)'
+        cleaned_title = re.sub(generic_remix_pattern, '', cleaned_title, flags=re.IGNORECASE)
         
         # Also remove version info separated by dash (e.g., "Song Title - 2019 Remaster")
         dash_version_pattern = r'\s*-\s*\d{4}\s+Remaster(?:ed)?'
