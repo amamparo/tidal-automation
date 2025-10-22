@@ -9,11 +9,9 @@ from src.environment import Environment
 from src.last_fm import LastFm
 from src.tidal import Tidal
 
-daily_blend_size = 100
-
-
 @inject
 def main(environment: Environment, tidal: Tidal, last_fm: LastFm) -> None:
+    daily_blend_size = environment.get('DAILY_BLEND_SIZE', 100)
     new_arrivals = tidal.get_mix_tracks(environment.get('NEW_ARRIVALS_MIX_ID'))
     last_fm_tracks = set()
     for mix_type in ['recommended', 'mix', 'library']:
