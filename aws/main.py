@@ -31,7 +31,7 @@ class TidalAutomation(Stack):
                 'DAILY_DISCOVER_MIX_ID': '016daa0bd02387c1695c2cff1c8b30',
                 'MY_MOST_LISTENED_MIX_ID': '0109440f07375fd523d01076bfc28a',
                 'DAILY_BLEND_PLAYLIST_ID': '00578a47-2b0b-49de-95a1-ec38696bfd73',
-                'DAILY_BLEND_SIZE': '50',
+                'DAILY_BLEND_SIZE': '100',
             },
             timeout=Duration.minutes(15)
         )
