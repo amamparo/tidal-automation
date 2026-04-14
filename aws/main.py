@@ -15,7 +15,7 @@ class TidalAutomation(Stack):
 
         secret = Secret(self, 'Secret')
 
-        function = DockerImageFunction(
+        daily_blend_function = DockerImageFunction(
             self,
             'UpdateDailyBlend',
             memory_size=128,
@@ -35,19 +35,34 @@ class TidalAutomation(Stack):
             },
             timeout=Duration.minutes(15)
         )
+        secret.grant_read(daily_blend_function)
 
-        secret.grant_read(function)
+        Rule(
+            self,
+            'UpdateDailyBlendSchedule',
+            schedule=Schedule.cron(hour="11", minute="0", day="*", month="*", year="*"),
+        ).add_target(LambdaFunction(daily_blend_function))
 
-        every_morning = Schedule.cron(
-            hour="11",
-            minute="0",
-            day="*",
-            month="*",
-            year="*"
+        kexp_function = DockerImageFunction(
+            self,
+            'UpdateKexpPlaylist',
+            memory_size=512,
+            code=DockerImageCode.from_image_asset(
+                directory=getcwd(),
+                platform=Platform.LINUX_ARM64,
+                cmd=['src.update_kexp_playlist.lambda_handler']
+            ),
+            architecture=Architecture.ARM_64,
+            environment={'SECRET_ARN': secret.secret_arn},
+            timeout=Duration.minutes(15)
         )
+        secret.grant_read(kexp_function)
 
-        Rule(self, 'UpdateDailyBlendSchedule', schedule=every_morning).add_target(
-            LambdaFunction(function))
+        Rule(
+            self,
+            'UpdateKexpPlaylistSchedule',
+            schedule=Schedule.cron(hour="11", minute="15", day="*", month="*", year="*"),
+        ).add_target(LambdaFunction(kexp_function))
 
 
 if __name__ == '__main__':

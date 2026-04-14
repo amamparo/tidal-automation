@@ -1,4 +1,6 @@
 install:
+	poetry config virtualenvs.in-project true --local
+	@if [ ! -d .venv ]; then poetry env remove --all 2>/dev/null || true; fi
 	poetry install --no-root
 
 lint:
@@ -26,3 +28,6 @@ token:
 
 daily_blend:
 	poetry run python -m src.update_daily_blend
+
+kexp:
+	poetry run python -m src.update_kexp_playlist

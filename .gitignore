@@ -3,3 +3,4 @@
 cdk.out
 .env
 .claude
+.venv

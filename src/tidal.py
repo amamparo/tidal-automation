@@ -1,3 +1,5 @@
+import math
+import random
 import re
 import time
 
@@ -9,6 +11,7 @@ from typing import Set, List, Optional, Dict
 
 from injector import inject, singleton
 from tidalapi import Session, Track, Album
+from tidalapi.user import LoggedInUser
 
 from src.environment import Environment
 from src.last_fm import LastFmTrack
@@ -66,6 +69,29 @@ class Tidal:
         playlist.clear()
         sleep(1)
         playlist.add(track_ids, limit=len(track_ids))
+
+    def get_or_create_playlist_id(self, name: str) -> str:
+        user = self.__tidal.user
+        assert isinstance(user, LoggedInUser)
+        self.__rate_limit()
+        for playlist in user.playlists():
+            if playlist.name == name:
+                return str(playlist.id)
+        self.__rate_limit()
+        return str(user.create_playlist(name, '').id)
+
+    def pick_track_by_popularity(self, artist: str, song_titles: List[str]) -> Optional[Track]:
+        candidates: List[Track] = []
+        weights: List[float] = []
+        for title in song_titles:
+            track = self.find_equivalent_track(LastFmTrack(title=title, artists={artist}))
+            if track is None:
+                continue
+            candidates.append(track)
+            weights.append(max(1.0, math.sqrt(track.popularity or 0)))
+        if not candidates:
+            return None
+        return random.choices(candidates, weights=weights, k=1)[0]
 
     def find_equivalent_track(self, last_fm_track: LastFmTrack) -> Optional[Track]:
         if last_fm_track in self.__track_find_cache:
