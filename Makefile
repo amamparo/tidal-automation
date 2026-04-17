@@ -31,3 +31,9 @@ daily_blend:
 
 kexp:
 	poetry run python -m src.update_kexp_playlist
+
+kcrw:
+	poetry run python -m src.update_kcrw_playlist
+
+colors:
+	poetry run python -m src.update_colors_playlist

@@ -40,7 +40,7 @@ class TidalAutomation(Stack):
         Rule(
             self,
             'UpdateDailyBlendSchedule',
-            schedule=Schedule.cron(hour="11", minute="0", day="*", month="*", year="*"),
+            schedule=Schedule.cron(hour="10", minute="30", day="*", month="*", year="*"),
         ).add_target(LambdaFunction(daily_blend_function))
 
         kexp_function = DockerImageFunction(
@@ -61,8 +61,50 @@ class TidalAutomation(Stack):
         Rule(
             self,
             'UpdateKexpPlaylistSchedule',
-            schedule=Schedule.cron(hour="11", minute="15", day="*", month="*", year="*"),
+            schedule=Schedule.cron(hour="10", minute="45", day="*", month="*", year="*"),
         ).add_target(LambdaFunction(kexp_function))
+
+        kcrw_function = DockerImageFunction(
+            self,
+            'UpdateKcrwPlaylist',
+            memory_size=512,
+            code=DockerImageCode.from_image_asset(
+                directory=getcwd(),
+                platform=Platform.LINUX_ARM64,
+                cmd=['src.update_kcrw_playlist.lambda_handler']
+            ),
+            architecture=Architecture.ARM_64,
+            environment={'SECRET_ARN': secret.secret_arn},
+            timeout=Duration.minutes(15)
+        )
+        secret.grant_read(kcrw_function)
+
+        Rule(
+            self,
+            'UpdateKcrwPlaylistSchedule',
+            schedule=Schedule.cron(hour="11", minute="00", day="*", month="*", year="*"),
+        ).add_target(LambdaFunction(kcrw_function))
+
+        colors_function = DockerImageFunction(
+            self,
+            'UpdateColorsPlaylist',
+            memory_size=512,
+            code=DockerImageCode.from_image_asset(
+                directory=getcwd(),
+                platform=Platform.LINUX_ARM64,
+                cmd=['src.update_colors_playlist.lambda_handler']
+            ),
+            architecture=Architecture.ARM_64,
+            environment={'SECRET_ARN': secret.secret_arn},
+            timeout=Duration.minutes(15)
+        )
+        secret.grant_read(colors_function)
+
+        Rule(
+            self,
+            'UpdateColorsPlaylistSchedule',
+            schedule=Schedule.cron(hour="11", minute="15", day="*", month="*", year="*"),
+        ).add_target(LambdaFunction(colors_function))
 
 
 if __name__ == '__main__':

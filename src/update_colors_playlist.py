@@ -4,15 +4,15 @@ from typing import Optional
 from injector import inject, Injector
 
 from src.tidal import Tidal
-from src.youtube import Kexp, build_playlist
+from src.youtube import Colors, build_playlist
 
-PLAYLIST_NAME = 'KEXP'
+PLAYLIST_NAME = 'COLORS'
 TARGET_SIZE = 100
 
 
 @inject
-def main(tidal: Tidal, kexp: Kexp) -> None:
-    build_playlist(tidal, kexp, PLAYLIST_NAME, TARGET_SIZE)
+def main(tidal: Tidal, colors: Colors) -> None:
+    build_playlist(tidal, colors, PLAYLIST_NAME, TARGET_SIZE, pool_by_artist=False)
 
 
 # pylint: disable=unused-argument

@@ -5,16 +5,43 @@ import time
 
 import unicodedata
 from collections import deque
+from dataclasses import dataclass
 from threading import Lock
 from time import sleep
-from typing import Set, List, Optional, Dict
+from typing import Callable, Set, List, Optional, Dict, TypeVar
 
 from injector import inject, singleton
+from requests.exceptions import ConnectionError as RequestsConnectionError, Timeout  # type: ignore[import-untyped]
 from tidalapi import Session, Track, Album
+from tidalapi.exceptions import TidalAPIError, TooManyRequests
 from tidalapi.user import LoggedInUser
 
 from src.environment import Environment
 from src.last_fm import LastFmTrack
+
+
+T = TypeVar('T')
+
+
+TRACK_URL_PREFIX = 'https://tidal.com/browse/track/'
+
+
+@dataclass
+class TidalTrack:
+    artist: str
+    title: str
+    url: str
+    popularity: float
+
+    def __hash__(self) -> int:
+        return hash(self.url)
+
+    def __eq__(self, other: object) -> bool:
+        return isinstance(other, TidalTrack) and self.url == other.url
+
+    @property
+    def track_id(self) -> str:
+        return self.url.rsplit('/', 1)[-1]
 
 
 @singleton
@@ -27,74 +54,99 @@ class Tidal:
         self.__track_find_cache: Dict[LastFmTrack, Optional[Track]] = {}
         self.__album_cache: Dict[str, Album] = {}
 
-        self.__max_requests_per_second = 1
+        self.__max_requests_per_second = 2
         self.__request_times = deque(maxlen=self.__max_requests_per_second)
         self.__rate_limit_lock = Lock()
 
-    def __rate_limit(self):
-        """Enforce rate limiting - max 5 requests per second."""
+    def __rate_limit(self) -> None:
         with self.__rate_limit_lock:
             now = time.time()
-
-            # Remove timestamps older than 1 second
             while self.__request_times and self.__request_times[0] < now - 1.0:
                 self.__request_times.popleft()
-
-            # If we've made 5 requests in the last second, wait
             if len(self.__request_times) >= self.__max_requests_per_second:
                 sleep_time = 1.0 - (now - self.__request_times[0])
                 if sleep_time > 0:
                     time.sleep(sleep_time)
                     now = time.time()
-
-            # Record this request
             self.__request_times.append(now)
+
+    def __call_api(self, fn: Callable[[], T]) -> T:
+        max_attempts = 10
+        for attempt in range(max_attempts):
+            self.__rate_limit()
+            try:
+                return fn()
+            except TooManyRequests as e:
+                if attempt == max_attempts - 1:
+                    raise
+                if e.retry_after > 0:
+                    sleep_time = float(e.retry_after) + 1.0
+                else:
+                    sleep_time = min(60.0, 2 ** (attempt + 1))
+                time.sleep(sleep_time)
+            except (RequestsConnectionError, Timeout):
+                if attempt == max_attempts - 1:
+                    raise
+                time.sleep(min(30.0, 2 ** attempt))
+        raise RuntimeError('unreachable')
 
     def get_mix_track_ids(self, mix_id: str) -> Set[str]:
         return {str(x.id) for x in self.get_mix_tracks(mix_id)}
 
     def get_mix_tracks(self, mix_id: str) -> Set[Track]:
-        self.__rate_limit()
-        return set(self.__tidal.mix(mix_id).items())
+        items = self.__call_api(lambda: self.__tidal.mix(mix_id).items())
+        return set(items)
 
     def get_playlist_tracks(self, playlist_id: str) -> Set[Track]:
-        self.__rate_limit()
-        return set(self.__tidal.playlist(playlist_id).items())
+        items = self.__call_api(lambda: self.__tidal.playlist(playlist_id).items())
+        return set(items)
 
     def get_playlist_track_ids(self, playlist_id: str) -> List[str]:
         return [str(x.id) for x in self.get_playlist_tracks(playlist_id)]
 
     def set_playlist_tracks(self, playlist_id: str, track_ids: List[str]) -> None:
-        playlist = self.__tidal.playlist(playlist_id)
-        playlist.clear()
+        playlist = self.__call_api(lambda: self.__tidal.playlist(playlist_id))
+        self.__call_api(playlist.clear)
         sleep(1)
-        playlist.add(track_ids, limit=len(track_ids))
+        self.__call_api(lambda: playlist.add(track_ids, limit=len(track_ids)))
 
     def get_or_create_playlist_id(self, name: str) -> str:
         user = self.__tidal.user
         assert isinstance(user, LoggedInUser)
-        self.__rate_limit()
-        for playlist in user.playlists():
+        for playlist in self.__call_api(user.playlists):
             if playlist.name == name:
                 return str(playlist.id)
-        self.__rate_limit()
-        return str(user.create_playlist(name, '').id)
+        return str(self.__call_api(lambda: user.create_playlist(name, '')).id)
 
-    def pick_track_by_popularity(self, artist: str, song_titles: List[str]) -> Optional[Track]:
-        candidates: List[Track] = []
-        weights: List[float] = []
-        for title in song_titles:
-            track = self.find_equivalent_track(LastFmTrack(title=title, artists={artist}))
-            if track is None:
-                continue
-            candidates.append(track)
-            weights.append(max(1.0, math.sqrt(track.popularity or 0)))
-        if not candidates:
+    def find_tidal_track(
+        self, artist: str, title: str, reject_title: Optional[re.Pattern] = None,
+    ) -> Optional[TidalTrack]:
+        try:
+            track = self.find_equivalent_track(
+                LastFmTrack(title=title, artists={artist}), reject_title=reject_title,
+            )
+        except (TidalAPIError, RequestsConnectionError, Timeout):
             return None
-        return random.choices(candidates, weights=weights, k=1)[0]
+        if track is None:
+            return None
+        return TidalTrack(
+            artist=', '.join(a.name for a in (track.artists or []) if a.name),
+            title=track.name or '',
+            url=f'{TRACK_URL_PREFIX}{track.id}',
+            popularity=float(track.popularity or 0),
+        )
 
-    def find_equivalent_track(self, last_fm_track: LastFmTrack) -> Optional[Track]:
-        if last_fm_track in self.__track_find_cache:
+    @staticmethod
+    def pick_by_popularity(tracks: List[TidalTrack]) -> Optional[TidalTrack]:
+        if not tracks:
+            return None
+        weights = [max(1.0, math.sqrt(t.popularity)) for t in tracks]
+        return random.choices(tracks, weights=weights, k=1)[0]
+
+    def find_equivalent_track(
+        self, last_fm_track: LastFmTrack, reject_title: Optional[re.Pattern] = None,
+    ) -> Optional[Track]:
+        if reject_title is None and last_fm_track in self.__track_find_cache:
             return self.__track_find_cache[last_fm_track]
 
         fixed = self.__fix_last_fm_track(last_fm_track)
@@ -118,12 +170,15 @@ class Tidal:
         # Normalize title for search - remove diacritics
         title_for_search = self.__remove_diacritics(fixed.title)
         query = ' '.join(search_artists) + ' ' + title_for_search
-        self.__rate_limit()
-        results = self.__tidal.search(query, models=[Track])['tracks']
+        results = self.__call_api(lambda: self.__tidal.search(query, models=[Track])['tracks'])
         various_artists_versions = []
         regular_versions = []
 
         for result in results:
+            if reject_title and reject_title.search(result.name or ''):
+                continue
+            if not self.__titles_match(fixed.title, result.name or ''):
+                continue
             track_artists = {artist.name for artist in result.artists}
             if not any(self.__artists_match(artist, track_artists) for artist in fixed.artists):
                 continue
@@ -146,7 +201,8 @@ class Tidal:
                 
                 if first_artist_matches:
                     # This is likely the original version with our artist as primary
-                    self.__track_find_cache[last_fm_track] = result
+                    if reject_title is None:
+                        self.__track_find_cache[last_fm_track] = result
                     return result
                 else:
                     # Our artist is present but not primary - might be a remix
@@ -157,22 +213,24 @@ class Tidal:
 
         # Return regular versions if we have them (non-Various Artists albums)
         if regular_versions:
-            self.__track_find_cache[last_fm_track] = regular_versions[0]
+            if reject_title is None:
+                self.__track_find_cache[last_fm_track] = regular_versions[0]
             return regular_versions[0]
 
         # Otherwise return Various Artists compilations
         if various_artists_versions:
-            self.__track_find_cache[last_fm_track] = various_artists_versions[0]
+            if reject_title is None:
+                self.__track_find_cache[last_fm_track] = various_artists_versions[0]
             return various_artists_versions[0]
 
-        self.__track_find_cache[last_fm_track] = None
+        if reject_title is None:
+            self.__track_find_cache[last_fm_track] = None
         return None
 
     def __get_album(self, album_id: str) -> Album:
         if album_id in self.__album_cache:
             return self.__album_cache[album_id]
-        self.__rate_limit()
-        album = self.__tidal.album(album_id)
+        album = self.__call_api(lambda: self.__tidal.album(album_id))
         self.__album_cache[album_id] = album
         return album
 
@@ -269,6 +327,19 @@ class Tidal:
             title=cleaned_title,
             artists=artists
         )
+
+    @staticmethod
+    def __normalize_title(title: str) -> str:
+        no_diacritics = Tidal.__remove_diacritics(title.lower())
+        return re.sub(r'[^a-z0-9]+', ' ', no_diacritics).strip()
+
+    @staticmethod
+    def __titles_match(searched: str, candidate: str) -> bool:
+        a = Tidal.__normalize_title(searched)
+        b = Tidal.__normalize_title(candidate)
+        if not a or not b:
+            return False
+        return a == b or a in b or b in a
 
     @staticmethod
     def __remove_diacritics(text: str) -> str:
