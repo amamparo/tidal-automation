@@ -152,6 +152,25 @@ class Kcrw(YoutubeChannel):
         return head
 
 
+class Audiotree(YoutubeChannel):
+    CHANNEL_HANDLE = '@audiotree'
+    TITLE_PATTERN = re.compile(r'^(.+?)\s+on\s+Audiotree\s+Live\b.*\bFull\s+Session\b', re.IGNORECASE)
+    NON_SONG_PATTERN = re.compile(r'^(intro|outro|interview(\s+\d+)?)$', re.IGNORECASE)
+    REJECT_TITLE_PATTERN = re.compile(r'\bAudiotree\b', re.IGNORECASE)
+
+    def _extract(self, title: str, description: str) -> Optional[Tuple[str, List[str]]]:
+        match = self.TITLE_PATTERN.match(title)
+        if not match:
+            return None
+        songs = [s for s in parse_songs(description) if not self.NON_SONG_PATTERN.match(s)]
+        if len(songs) < 2:
+            return None
+        artist = match.group(1).strip()
+        if not artist:
+            return None
+        return artist, songs
+
+
 class Colors(YoutubeChannel):
     CHANNEL_HANDLE = '@COLORSxSTUDIOS'
     TITLE_PATTERN = re.compile(r'^(.+?)\s+-\s+(.+?)\s*\|\s*A COLORS\b', re.IGNORECASE)

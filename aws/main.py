@@ -106,6 +106,27 @@ class TidalAutomation(Stack):
             schedule=Schedule.cron(hour="11", minute="15", day="*", month="*", year="*"),
         ).add_target(LambdaFunction(colors_function))
 
+        audiotree_function = DockerImageFunction(
+            self,
+            'UpdateAudiotreePlaylist',
+            memory_size=512,
+            code=DockerImageCode.from_image_asset(
+                directory=getcwd(),
+                platform=Platform.LINUX_ARM64,
+                cmd=['src.update_audiotree_playlist.lambda_handler']
+            ),
+            architecture=Architecture.ARM_64,
+            environment={'SECRET_ARN': secret.secret_arn},
+            timeout=Duration.minutes(15)
+        )
+        secret.grant_read(audiotree_function)
+
+        Rule(
+            self,
+            'UpdateAudiotreePlaylistSchedule',
+            schedule=Schedule.cron(hour="11", minute="30", day="*", month="*", year="*"),
+        ).add_target(LambdaFunction(audiotree_function))
+
 
 if __name__ == '__main__':
     app = App()

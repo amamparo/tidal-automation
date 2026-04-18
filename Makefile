@@ -37,3 +37,6 @@ kcrw:
 
 colors:
 	poetry run python -m src.update_colors_playlist
+
+audiotree:
+	poetry run python -m src.update_audiotree_playlist

@@ -190,6 +190,8 @@ class Tidal:
             if not self.__titles_match(fixed.title, result.name or ''):
                 continue
             track_artists = {artist.name for artist in result.artists}
+            if reject_title and any(reject_title.search(a or '') for a in track_artists):
+                continue
             if not any(self.__artists_match(artist, track_artists) for artist in fixed.artists):
                 continue
 
