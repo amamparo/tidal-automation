@@ -11,7 +11,7 @@ from time import sleep
 from typing import Callable, Set, List, Optional, Dict, TypeVar
 
 from injector import inject, singleton
-from requests.exceptions import ConnectionError as RequestsConnectionError, Timeout  # type: ignore[import-untyped]
+from requests.exceptions import ConnectionError as RequestsConnectionError, HTTPError, Timeout  # type: ignore[import-untyped]
 from tidalapi import Session, Track, Album
 from tidalapi.exceptions import TidalAPIError, TooManyRequests
 from tidalapi.user import LoggedInUser
@@ -105,9 +105,19 @@ class Tidal:
         return [str(x.id) for x in self.get_playlist_tracks(playlist_id)]
 
     def set_playlist_tracks(self, playlist_id: str, track_ids: List[str]) -> None:
-        playlist = self.__call_api(lambda: self.__tidal.playlist(playlist_id))
-        self.__call_api(playlist.clear)
+        max_attempts = 5
+        for attempt in range(max_attempts):
+            playlist = self.__call_api(lambda: self.__tidal.playlist(playlist_id))
+            try:
+                self.__call_api(playlist.clear)
+                break
+            except HTTPError as e:
+                if (e.response is None or e.response.status_code != 412
+                        or attempt == max_attempts - 1):
+                    raise
+                sleep(min(10.0, 2 ** attempt))
         sleep(1)
+        playlist = self.__call_api(lambda: self.__tidal.playlist(playlist_id))
         self.__call_api(lambda: playlist.add(track_ids, limit=len(track_ids)))
 
     def get_or_create_playlist_id(self, name: str) -> str:
