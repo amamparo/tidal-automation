@@ -3,14 +3,8 @@ from pathlib import Path
 from typing import List, Tuple
 from unittest import TestCase
 
-from src.mixes_db import (
-    MixTrack,
-    categories_of,
-    date_window,
-    parse_tracklist,
-    recorded_on,
-    search_query
-)
+from src.mixes_db import MixTrack, categories_of, date_window, parse_tracklist, recorded_on
+from src.update_dub_techno import search_query
 
 FIXTURES = Path(__file__).parent / 'fixtures' / 'mixes_db'
 

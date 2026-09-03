@@ -8,8 +8,12 @@ This is a Tidal music automation service that rebuilds Tidal playlists on a dail
 
 * `src/update_daily_blend.py` — a "Daily Blend" from Tidal mixes plus last.fm recommendations.
 * `src/update_dub_techno.py` — a "Dub Techno" playlist from MixesDB mix tracklists.
+* `src/update_berghain_sound.py` — a "Berghain Sound" playlist of Berlin techno from MixesDB.
 
-Both run on staggered 15-minute intervals from 10:00 UTC, which is 04:00 Chicago in winter and
+`src/playlist.py` holds the shared weighted-lottery selection and Tidal resolution; each `update_*.py`
+lambda is a thin wrapper supplying a MixesDB search query, a playlist id and a size.
+
+They run on staggered 15-minute intervals from 10:00 UTC, which is 04:00 Chicago in winter and
 05:00 in summer — the latest UTC hour that never starts a job before 4AM local.
 
 ## Data sources

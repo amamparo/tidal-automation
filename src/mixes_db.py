@@ -12,7 +12,6 @@ API_URL = 'https://www.mixesdb.com/w/api.php'
 USER_AGENT = 'tidal-automation/1.0 (+https://github.com/amamparo/tidal-automation)'
 REQUEST_TIMEOUT = (5.0, 30.0)
 CRAWL_DELAY_SECONDS = 4
-STYLE = 'Dub Techno'
 TITLES_PER_REQUEST = 50
 MINIMUM_SEARCH_HITS = 40
 MINIMUM_TITLE_LENGTH = 3
@@ -60,10 +59,6 @@ class Tracklist:
 def date_window(today: date) -> str:
     trailing_months = [f'{today.year - 1}-{month:02d}' for month in range(today.month + 1, 13)]
     return ','.join([str(today.year), *trailing_months])
-
-
-def search_query(today: date) -> str:
-    return f'style:"{STYLE}" -tracklist:none hasplayer date:{date_window(today)}'
 
 
 def categories_of(wikitext: str) -> Set[str]:
@@ -132,8 +127,8 @@ class MixesDb:
         self.__session = requests.Session()
         self.__session.headers.update({'User-Agent': USER_AGENT, 'Accept-Encoding': 'gzip'})
 
-    def get_tracklists(self, today: date) -> List[Tracklist]:
-        titles = self.__search_titles(today)
+    def get_tracklists(self, query: str) -> List[Tracklist]:
+        titles = self.__search_titles(query)
         wikitext = self.__get_wikitext(titles)
         tracklists = []
         for title in titles:
@@ -145,8 +140,7 @@ class MixesDb:
                                             categories=categories_of(page)))
         return tracklists
 
-    def __search_titles(self, today: date) -> List[str]:
-        query = search_query(today)
+    def __search_titles(self, query: str) -> List[str]:
         response = self.__get({
             'action': 'query', 'list': 'search', 'srlimit': 'max', 'srsort': 'hotness_desc',
             'srsearch': query,

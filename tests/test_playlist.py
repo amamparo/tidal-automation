@@ -4,7 +4,7 @@ from typing import Optional, Set
 from unittest import TestCase
 
 from src.mixes_db import MixTrack, Tracklist
-from src.update_dub_techno import (
+from src.playlist import (
     DISCOURAGED_STYLE_PENALTY,
     HOTTEST_MIX_WEIGHT,
     RECENCY_HALF_LIFE_DAYS,

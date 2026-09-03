@@ -6,16 +6,12 @@ from typing import Optional
 from injector import inject, Injector
 
 from src.environment import Environment
-from src.mixes_db import MixesDb, date_window
+from src.mixes_db import MixesDb
 from src.playlist import rebuild
 from src.tidal import Tidal
 
-PLAYLIST_NAME = 'dub-techno'
-STYLE = 'Dub Techno'
-
-
-def search_query(today: date) -> str:
-    return f'style:"{STYLE}" -tracklist:none hasplayer date:{date_window(today)}'
+PLAYLIST_NAME = 'berghain-sound'
+SEARCH_QUERY = 'style:Techno tracklist:complete intitle:Berlin'
 
 
 @inject
@@ -25,9 +21,9 @@ def main(environment: Environment, tidal: Tidal, mixes_db: MixesDb) -> None:
         tidal,
         mixes_db,
         name=PLAYLIST_NAME,
-        query=search_query(today),
-        playlist_id=environment.require('DUB_TECHNO_PLAYLIST_ID'),
-        playlist_size=int(environment.require('DUB_TECHNO_SIZE')),
+        query=SEARCH_QUERY,
+        playlist_id=environment.require('BERGHAIN_SOUND_PLAYLIST_ID'),
+        playlist_size=int(environment.require('BERGHAIN_SOUND_SIZE')),
         today=today
     )
 
