@@ -166,7 +166,7 @@ class TracklistParsing(TestCase):
         self.assertIn(MixTrack('Schulz Audio', 'Riddim Room'), both_tracks)
 
 
-class SearchQuery(TestCase):
+class DateWindow(TestCase):
     def test_date_window(self) -> None:
         self.assertEqual('2026,2025-10,2025-11,2025-12', date_window(date(2026, 9, 3)))
 
@@ -185,6 +185,8 @@ class SearchQuery(TestCase):
                 self.assertEqual('2027', tokens[0])
                 self.assertEqual([f'2026-{trailing:02d}' for trailing in range(month + 1, 13)], tokens[1:])
 
+
+class SearchQuery(TestCase):
     def test_search_query(self) -> None:
         self.assertEqual(
             'style:"Dub Techno" -tracklist:none hasplayer date:2026,2025-10,2025-11,2025-12',

@@ -50,7 +50,6 @@ class MixTrack:
 
 @dataclass
 class Tracklist:
-    mix_title: str
     recorded_on: date
     tracks: List[MixTrack] = field(default_factory=list)
     categories: Set[str] = field(default_factory=set)
@@ -136,8 +135,7 @@ class MixesDb:
             page = wikitext.get(title, '')
             tracks = parse_tracklist(page)
             if recorded and tracks:
-                tracklists.append(Tracklist(mix_title=title, recorded_on=recorded, tracks=tracks,
-                                            categories=categories_of(page)))
+                tracklists.append(Tracklist(recorded_on=recorded, tracks=tracks, categories=categories_of(page)))
         return tracklists
 
     def __search_titles(self, query: str) -> List[str]:

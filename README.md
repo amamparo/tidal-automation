@@ -7,13 +7,8 @@ Rebuilds two Tidal playlists on a daily schedule, each as its own AWS Lambda dep
   [MixesDB](https://www.mixesdb.com), picked by a weighted lottery that favours hotter and more recent mixes
   and heavily discounts mixes tagged Ambient or IDM.
 
-* **Berghain Sound** — high-energy Berlin techno, from MixesDB mixes tagged `Techno` with any tracklist and
-  `Berlin` in the title: Tresor, RSO, HÖR, Boiler Room, Berghain and others. Mixes tagged `Dub`,
-  `Dub Techno`, `Minimal` or `Ambient` are excluded outright, and the lottery is weighted toward recent
-  mixes.
-
-All three rebuild differentially: a track that survives an update keeps its original date-added, so sorting
-the playlist by that shows what is new and what has been hanging around.
+Both rebuild differentially: a track that survives an update keeps its original date-added, so sorting the
+playlist by that shows what is new and what has been hanging around.
 
 ## Requirements
 * Python 3.13
@@ -36,8 +31,6 @@ Local runs read these from a `.env` in the project root:
 * `DAILY_BLEND_SIZE` — how many tracks to fill it up to
 * `DUB_TECHNO_PLAYLIST_ID` — the Dub Techno playlist to rewrite; create it by hand in Tidal first
 * `DUB_TECHNO_SIZE` — how many tracks to fill it up to
-* `BERGHAIN_SOUND_PLAYLIST_ID` — the Berghain Sound playlist to rewrite; create it by hand in Tidal first
-* `BERGHAIN_SOUND_SIZE` — how many tracks to fill it up to
 
 The deployed Lambda takes the same settings from `aws/main.py`, apart from the refresh token,
 which it reads from its Secrets Manager secret. CDK creates that secret with a generated placeholder
@@ -47,7 +40,6 @@ value, so after the first `just deploy` set it to `{"TIDAL_REFRESH_TOKEN": "<tok
 ```shell
 just daily-blend
 just dub-techno
-just berghain-sound
 ```
 
 ## Checks

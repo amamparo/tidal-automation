@@ -37,11 +37,10 @@ def unstyled_weight(rank: int, mix_count: int, age_days: int) -> float:
 
 
 def mix(recorded_on: date, *tracks: MixTrack, categories: Optional[Set[str]] = None) -> Tracklist:
-    return Tracklist(mix_title=f'{recorded_on} - Mix', recorded_on=recorded_on, tracks=list(tracks),
-                     categories=set(categories or ()))
+    return Tracklist(recorded_on=recorded_on, tracks=list(tracks), categories=set(categories or ()))
 
 
-class DubTechnoSelection(TestCase):
+class CandidateSelection(TestCase):
     def test_hotter_mixes_weigh_more(self) -> None:
         self.assertGreater(unstyled_weight(0, 100, 0), unstyled_weight(99, 100, 0))
         hottest, coldest = unstyled_weight(0, 100, 0), unstyled_weight(99, 100, 0)
@@ -133,6 +132,8 @@ class DubTechnoSelection(TestCase):
 
         self.assertGreater(weights[rhythmic], weights[ambient])
 
+
+class RecordingMatching(TestCase):
     def test_rejects_a_title_extended_with_bare_words(self) -> None:
         self.assertFalse(is_same_recording('Home', 'Home on The Range'))
         self.assertFalse(is_same_recording('Free', 'Free From Desire'))

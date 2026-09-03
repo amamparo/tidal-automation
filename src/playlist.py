@@ -66,12 +66,12 @@ def find_track(tidal: Tidal, track: MixTrack) -> Optional[Track]:
     return found if found and is_same_recording(track.title, found.name or '') else None
 
 
-def find_tracks_on_tidal(tidal: Tidal, candidates: List[MixTrack], playlist_size: int, name: str) -> List[str]:
+def find_tracks_on_tidal(tidal: Tidal, candidates: List[MixTrack], playlist_size: int) -> List[str]:
     track_ids: List[str] = []
     deadline = monotonic() + MATCH_DEADLINE_SECONDS
     lookups = consecutive_misses = 0
 
-    with tqdm(total=playlist_size, desc=f'Building {name} playlist') as progress:
+    with tqdm(total=playlist_size, desc='Building playlist') as progress:
         for candidate in candidates:
             if len(track_ids) >= playlist_size or lookups >= LOOKUP_BUDGET or monotonic() > deadline:
                 break
@@ -90,19 +90,19 @@ def find_tracks_on_tidal(tidal: Tidal, candidates: List[MixTrack], playlist_size
             track_ids.append(track_id)
             progress.write(f'\033[92m✓ {found.name} - {candidate.artist}\033[0m')
             progress.update(1)
-    print(f'{name} tidal: {lookups} lookups, {len(track_ids)} tracks')
+    print(f'tidal: {lookups} lookups, {len(track_ids)} tracks')
     return track_ids
 
 
-def rebuild(tidal: Tidal, mixes_db: MixesDb, *, name: str, query: str,
-            playlist_id: str, playlist_size: int, today: date) -> None:
+def rebuild(tidal: Tidal, mixes_db: MixesDb, *, query: str, playlist_id: str,
+            playlist_size: int, today: date) -> None:
     tracklists = mixes_db.get_tracklists(query)
     weights = weigh_candidates(tracklists, today)
-    print(f'{name} mixesdb: {len(tracklists)} tracklists, {len(weights)} candidates')
+    print(f'mixesdb: {len(tracklists)} tracklists, {len(weights)} candidates')
     if len(weights) < MINIMUM_CANDIDATES:
         raise RuntimeError(f'only {len(weights)} candidates from {len(tracklists)} tracklists')
 
-    track_ids = find_tracks_on_tidal(tidal, weighted_draw(weights, today.toordinal()), playlist_size, name)
+    track_ids = find_tracks_on_tidal(tidal, weighted_draw(weights, today.toordinal()), playlist_size)
     if not track_ids or len(track_ids) < playlist_size // 2:
         raise RuntimeError(f'only {len(track_ids)} tracks matched; leaving the playlist untouched')
     tidal.set_playlist_tracks(playlist_id, track_ids)

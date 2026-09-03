@@ -8,12 +8,11 @@ This is a Tidal music automation service that rebuilds Tidal playlists on a dail
 
 * `src/update_daily_blend.py` — a "Daily Blend" from Tidal mixes plus last.fm recommendations.
 * `src/update_dub_techno.py` — a "Dub Techno" playlist from MixesDB mix tracklists.
-* `src/update_berghain_sound.py` — a "Berghain Sound" playlist of high-energy Berlin techno.
 
-`src/playlist.py` holds the shared weighted-lottery selection and Tidal resolution; each `update_*.py`
-lambda is a thin wrapper supplying a MixesDB search query, a playlist id and a size.
+`src/playlist.py` holds the weighted-lottery selection and Tidal resolution; `update_dub_techno.py` is a
+thin wrapper supplying a MixesDB search query, a playlist id and a size.
 
-They run on staggered 15-minute intervals from 10:00 UTC, which is 04:00 Chicago in winter and
+Both run on staggered 15-minute intervals from 10:00 UTC, which is 04:00 Chicago in winter and
 05:00 in summer — the latest UTC hour that never starts a job before 4AM local.
 
 ## Data sources
@@ -23,13 +22,14 @@ MediaWiki JSON API at `https://www.mixesdb.com/w/api.php`, which honours MixesDB
 (`style:`, `date:`, `hasplayer`, `-tracklist:none`). `srsort=hotness_desc` works; bare `hotness` does not.
 There is **no OR syntax** — `|`, `,` and `OR` all behave as AND — so a multi-style search would mean one
 request per style merged client-side. That was tried and reverted; one style is plenty for a 100-track
-playlist. **Negation works**: `-style:"Dub Techno"` excludes server-side, verified 0 leaks over 500 results.
+playlist. **Negation works**: a leading `-` on `style:` excludes server-side, verified 0 leaks over 500 results.
 `srlimit=max` caps anonymous results at 500, so a query with more hits is silently truncated to the 500
 hottest.
 
 The `MixesDB:Explorer` pages are server-rendered but only ever emit ~25 rows; the rest loads via JS. Every
 Explorer query so far has an equivalent `list=search` query that is a strict superset, so use the API. The
 Explorer's `style=` codes are groups, not categories — `TA` is "Techno / Acid".
+
 `titles=` accepts 50 per request for anonymous clients. Errors arrive as HTTP 200 with an `error` object,
 so check the body, not just the status. `robots.txt` sets `Crawl-delay: 4`. See `PLAN.md` for the details.
 

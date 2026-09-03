@@ -71,34 +71,6 @@ class TidalAutomation(Stack):
             targets=[LambdaFunction(update_dub_techno)]
         )
 
-        update_berghain_sound = DockerImageFunction(
-            self,
-            'UpdateBerghainSound',
-            memory_size=256,
-            code=DockerImageCode.from_image_asset(
-                directory=getcwd(),
-                platform=Platform.LINUX_ARM64,
-                cmd=['src.update_berghain_sound.lambda_handler']
-            ),
-            architecture=Architecture.ARM_64,
-            environment={
-                'SECRET_ARN': secret.secret_arn,
-                'BERGHAIN_SOUND_PLAYLIST_ID': 'f3986534-6e3d-4a90-8c3a-1281260a1da2',
-                'BERGHAIN_SOUND_SIZE': '100',
-            },
-            reserved_concurrent_executions=1,
-            retry_attempts=0,
-            timeout=Duration.minutes(15)
-        )
-        secret.grant_read(update_berghain_sound)
-
-        Rule(
-            self,
-            'UpdateBerghainSoundSchedule',
-            schedule=Schedule.cron(hour='10', minute='30'),
-            targets=[LambdaFunction(update_berghain_sound)]
-        )
-
 
 if __name__ == '__main__':
     app = App()

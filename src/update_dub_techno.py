@@ -10,12 +10,9 @@ from src.mixes_db import MixesDb, date_window
 from src.playlist import rebuild
 from src.tidal import Tidal
 
-PLAYLIST_NAME = 'dub-techno'
-STYLE = 'Dub Techno'
-
 
 def search_query(today: date) -> str:
-    return f'style:"{STYLE}" -tracklist:none hasplayer date:{date_window(today)}'
+    return f'style:"Dub Techno" -tracklist:none hasplayer date:{date_window(today)}'
 
 
 @inject
@@ -24,7 +21,6 @@ def main(environment: Environment, tidal: Tidal, mixes_db: MixesDb) -> None:
     rebuild(
         tidal,
         mixes_db,
-        name=PLAYLIST_NAME,
         query=search_query(today),
         playlist_id=environment.require('DUB_TECHNO_PLAYLIST_ID'),
         playlist_size=int(environment.require('DUB_TECHNO_SIZE')),
