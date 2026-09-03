@@ -10,4 +10,4 @@ disable=
 
 [FORMAT]
 max-line-length=120
-check-quote-consistency = true
+check-quote-consistency=true

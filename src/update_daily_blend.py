@@ -20,7 +20,7 @@ def find_last_fm_tracks_on_tidal(tidal: Tidal, last_fm: LastFm) -> Set[Track]:
                 progress.write(f'> {mix_track}')
                 tidal_track = tidal.find_equivalent_track(mix_track)
                 if tidal_track:
-                    artists = ', '.join(x.name or '' for x in (tidal_track.artists or []))
+                    artists = ', '.join(artist.name or '' for artist in (tidal_track.artists or []))
                     progress.write(f'\033[92m✓ {tidal_track.name} - {artists}\033[0m')
                     found.add(tidal_track)
                 else:
@@ -61,14 +61,14 @@ def main(environment: Environment, tidal: Tidal, last_fm: LastFm) -> None:
             break
         blend_tracks.add(pick_weighted_track(remaining_tracks, existing_blend_tracks, blend_tracks))
 
-    blend_track_ids = [str(x.id) for x in blend_tracks]
+    blend_track_ids = [str(track.id) for track in blend_tracks]
     shuffle(blend_track_ids)
 
     tidal.set_playlist_tracks(daily_blend_playlist_id, blend_track_ids)
 
 
-# pylint: disable=unused-argument
 def lambda_handler(event: Optional[dict] = None, context: Optional[dict] = None) -> None:
+    # pylint: disable=unused-argument
     Injector().call_with_injection(main)
 
 

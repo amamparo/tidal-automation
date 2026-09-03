@@ -1,26 +1,22 @@
 import json
 from os import environ
-from typing import Dict, Optional
+from typing import Dict
 
 import boto3
 from dotenv import load_dotenv
-from injector import inject, singleton
+from injector import singleton
 
 load_dotenv()
 
 
 @singleton
 class Environment:
-    @inject
     def __init__(self) -> None:
         secret_arn = environ.get('SECRET_ARN')
         self.__secret_environment: Dict[str, str] = self.__import_from(secret_arn) if secret_arn else {}
 
-    def get(self, name: str) -> Optional[str]:
-        return self.__secret_environment.get(name, environ.get(name))
-
     def require(self, name: str) -> str:
-        value = self.get(name)
+        value = self.__secret_environment.get(name, environ.get(name))
         if value is None:
             raise KeyError(f'missing environment variable: {name}')
         return value

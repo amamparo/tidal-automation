@@ -1,11 +1,9 @@
 import re
 import time
-
 import unicodedata
 from collections import deque
 from threading import Lock
-from time import sleep
-from typing import Callable, Deque, Iterable, Set, List, Optional, Dict, TypeVar, cast
+from typing import Callable, Deque, Dict, Iterable, List, Optional, Set, TypeVar, cast
 
 from injector import inject, singleton
 from requests.exceptions import (  # type: ignore[import-untyped]
@@ -24,9 +22,6 @@ from src.last_fm import LastFmTrack
 T = TypeVar('T')
 
 
-MISSING_ARTIST: JsonObj = {'id': None, 'name': None}
-
-
 UNSEARCHABLE_ARTIST_MARKERS = (' vs. ', ' versus ', ' feat.', ' featuring ')
 ARTIST_LIST_SEPARATOR = re.compile(r'\s*[,&]\s*|\s+and\s+')
 VERSUS_SEPARATOR = re.compile(r'\s+(?:vs\.?|versus)\s+', re.IGNORECASE)
@@ -41,6 +36,9 @@ TRACK_VERSION_SUFFIX = re.compile(
 GENERIC_REMIX_SUFFIX = re.compile(r'\s*\((?:Remix|Mix)\)', re.IGNORECASE)
 DASH_REMASTER_SUFFIX = re.compile(r'\s*-\s*\d{4}\s+Remaster(?:ed)?', re.IGNORECASE)
 TITLE_NOISE_SUFFIXES = (COLLABORATION_PARENTHETICAL, TRACK_VERSION_SUFFIX, GENERIC_REMIX_SUFFIX, DASH_REMASTER_SUFFIX)
+
+
+MISSING_ARTIST: JsonObj = {'id': None, 'name': None}
 
 
 class NullArtistTolerantSession(Session):
@@ -113,11 +111,11 @@ class Tidal:
                 self.__call_api(playlist.clear)
                 break
             except HTTPError as e:
-                if (e.response is None or e.response.status_code != 412
-                        or attempt == max_attempts - 1):
+                precondition_failed = e.response is not None and e.response.status_code == 412
+                if not precondition_failed or attempt == max_attempts - 1:
                     raise
-                sleep(min(10.0, 2 ** attempt))
-        sleep(1)
+                time.sleep(min(10.0, 2 ** attempt))
+        time.sleep(1)
         playlist = cast(UserPlaylist, self.__call_api(lambda: self.__tidal.playlist(playlist_id)))
         self.__call_api(lambda: playlist.add(track_ids, limit=len(track_ids)))
 
@@ -161,25 +159,12 @@ class Tidal:
         return None
 
     @staticmethod
-    def __is_original_version(
-        searched_artists: Set[str], result: Track, album_artists: Set[Optional[str]],
-    ) -> bool:
+    def __is_original_version(searched_artists: Set[str], result: Track, album_artists: Set[Optional[str]]) -> bool:
         if not Tidal.__artists_match(searched_artists, album_artists):
             return False
         if not result.artists:
             return False
         return Tidal.__artists_match(searched_artists, {result.artists[0].name})
-
-    @staticmethod
-    def __search_query(searched: LastFmTrack) -> str:
-        search_artists = []
-        for artist in searched.artists:
-            artist_lower = artist.lower()
-            if any(marker in artist_lower for marker in UNSEARCHABLE_ARTIST_MARKERS):
-                continue
-            searchable = Tidal.__remove_diacritics(artist.replace('&', ' '))
-            search_artists.append(searchable[4:] if searchable.lower().startswith('the ') else searchable)
-        return ' '.join(search_artists) + ' ' + Tidal.__remove_diacritics(searched.title)
 
     def __get_album(self, album_id: str) -> Album:
         if album_id in self.__album_cache:
@@ -189,15 +174,25 @@ class Tidal:
         return album
 
     @staticmethod
+    def __search_query(searched: LastFmTrack) -> str:
+        search_artists = []
+        for artist in searched.artists:
+            artist_lower = artist.lower()
+            if any(marker in artist_lower for marker in UNSEARCHABLE_ARTIST_MARKERS):
+                continue
+            searchable = Tidal.__remove_diacritics(artist.replace('&', ' '))
+            if searchable.lower().startswith('the '):
+                searchable = searchable[4:]
+            search_artists.append(searchable)
+        return ' '.join(search_artists) + ' ' + Tidal.__remove_diacritics(searched.title)
+
+    @staticmethod
     def __fix_last_fm_track(last_fm_track: LastFmTrack) -> LastFmTrack:
         artists: Set[str] = set()
         for artist in last_fm_track.artists:
             artists |= Tidal.__artist_name_variants(artist)
         artists |= Tidal.__artists_named_in_title(last_fm_track.title)
-        return LastFmTrack(
-            title=Tidal.__clean_title(last_fm_track.title),
-            artists=artists
-        )
+        return LastFmTrack(title=Tidal.__clean_title(last_fm_track.title), artists=artists)
 
     @staticmethod
     def __artist_name_variants(artist: str) -> Set[str]:
@@ -217,7 +212,7 @@ class Tidal:
 
     @staticmethod
     def __artists_named_in_title(title: str) -> Set[str]:
-        artists = set()
+        artists: Set[str] = set()
         for collaboration in COLLABORATION_PARENTHETICAL.findall(title):
             named_artists = COLLABORATION_KEYWORD.sub('', collaboration)
             artists |= Tidal.__stripped_parts(ARTIST_LIST_SEPARATOR.split(named_artists))
@@ -237,29 +232,29 @@ class Tidal:
         return {stripped for stripped in (part.strip() for part in parts) if stripped}
 
     @staticmethod
+    def __remove_diacritics(text: str) -> str:
+        nfd_form = unicodedata.normalize('NFD', text)
+        return ''.join(char for char in nfd_form if unicodedata.category(char) != 'Mn')
+
+    @staticmethod
     def __normalize_title(title: str) -> str:
         no_diacritics = Tidal.__remove_diacritics(title.lower())
         return re.sub(r'[^a-z0-9]+', ' ', no_diacritics).strip()
 
     @staticmethod
     def __titles_match(searched: str, candidate: str) -> bool:
-        a = Tidal.__normalize_title(searched)
-        b = Tidal.__normalize_title(candidate)
-        if not a or not b:
+        normalized_searched = Tidal.__normalize_title(searched)
+        normalized_candidate = Tidal.__normalize_title(candidate)
+        if not normalized_searched or not normalized_candidate:
             return False
-        return a == b or a in b or b in a
-
-    @staticmethod
-    def __remove_diacritics(text: str) -> str:
-        nfd_form = unicodedata.normalize('NFD', text)
-        return ''.join(char for char in nfd_form if unicodedata.category(char) != 'Mn')
+        return normalized_searched in normalized_candidate or normalized_candidate in normalized_searched
 
     @staticmethod
     def __normalize_artist_name(name: Optional[str]) -> str:
         if not name:
             return ''
-        normalized = Tidal.__remove_diacritics(name.lower().strip())
-        normalized = re.sub(r'\s+', ' ', normalized).strip()
+        without_diacritics = Tidal.__remove_diacritics(name.lower())
+        normalized = re.sub(r'\s+', ' ', without_diacritics).strip()
         return normalized.replace(' & ', ' and ')
 
     @staticmethod
