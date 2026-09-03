@@ -7,9 +7,10 @@ Rebuilds two Tidal playlists on a daily schedule, each as its own AWS Lambda dep
   [MixesDB](https://www.mixesdb.com), picked by a weighted lottery that favours hotter and more recent mixes
   and heavily discounts mixes tagged Ambient or IDM.
 
-* **Berghain Sound** — Berlin techno, from every MixesDB mix tagged `Techno` with a complete tracklist and
-  `Berlin` in its title: HÖR, Tresor, Boiler Room, Berghain and others, running back to 1991. The lottery is
-  weighted toward recent mixes.
+* **Berghain Sound** — high-energy Berlin techno, from MixesDB mixes tagged `Techno` with any tracklist and
+  `Berlin` in the title: Tresor, RSO, HÖR, Boiler Room, Berghain and others. Mixes tagged `Dub`,
+  `Dub Techno`, `Minimal` or `Ambient` are excluded outright, and the lottery is weighted toward recent
+  mixes.
 
 All three rebuild differentially: a track that survives an update keeps its original date-added, so sorting
 the playlist by that shows what is new and what has been hanging around.

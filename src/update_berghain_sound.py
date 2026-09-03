@@ -11,7 +11,15 @@ from src.playlist import rebuild
 from src.tidal import Tidal
 
 PLAYLIST_NAME = 'berghain-sound'
-SEARCH_QUERY = 'style:Techno tracklist:complete intitle:Berlin'
+STYLE = 'Techno'
+TITLE_MATCH = 'Berlin'
+LOW_ENERGY_STYLES = ('Dub Techno', 'Dub', 'Minimal', 'Ambient')
+SEARCH_QUERY = ' '.join([
+    f'style:{STYLE}',
+    '-tracklist:none',
+    f'intitle:{TITLE_MATCH}',
+    *(f'-style:"{style}"' for style in LOW_ENERGY_STYLES)
+])
 
 
 @inject
