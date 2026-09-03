@@ -38,6 +38,3 @@ daily-blend:
 
 dub-techno:
     {{ python }} -m src.update_dub_techno
-
-berghain-sound:
-    {{ python }} -m src.update_berghain_sound
