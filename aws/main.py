@@ -10,12 +10,12 @@ from constructs import Construct
 
 
 class TidalAutomation(Stack):
-    def __init__(self, scope: Construct):
+    def __init__(self, scope: Construct) -> None:
         super().__init__(scope, 'TidalAutomation')
 
         secret = Secret(self, 'Secret')
 
-        daily_blend_function = DockerImageFunction(
+        update_daily_blend = DockerImageFunction(
             self,
             'UpdateDailyBlend',
             memory_size=128,
@@ -29,103 +29,18 @@ class TidalAutomation(Stack):
                 'SECRET_ARN': secret.secret_arn,
                 'NEW_ARRIVALS_MIX_ID': '011f771e2ce4e3f379afe2d4491217',
                 'DAILY_DISCOVER_MIX_ID': '016daa0bd02387c1695c2cff1c8b30',
-                'MY_MOST_LISTENED_MIX_ID': '0109440f07375fd523d01076bfc28a',
                 'DAILY_BLEND_PLAYLIST_ID': '00578a47-2b0b-49de-95a1-ec38696bfd73',
                 'DAILY_BLEND_SIZE': '100',
             },
             timeout=Duration.minutes(15)
         )
-        secret.grant_read(daily_blend_function)
+        secret.grant_read(update_daily_blend)
 
         Rule(
             self,
             'UpdateDailyBlendSchedule',
-            schedule=Schedule.cron(hour="10", minute="30", day="*", month="*", year="*"),
-        ).add_target(LambdaFunction(daily_blend_function))
-
-        kexp_function = DockerImageFunction(
-            self,
-            'UpdateKexpPlaylist',
-            memory_size=512,
-            code=DockerImageCode.from_image_asset(
-                directory=getcwd(),
-                platform=Platform.LINUX_ARM64,
-                cmd=['src.update_kexp_playlist.lambda_handler']
-            ),
-            architecture=Architecture.ARM_64,
-            environment={'SECRET_ARN': secret.secret_arn},
-            timeout=Duration.minutes(15)
-        )
-        secret.grant_read(kexp_function)
-
-        Rule(
-            self,
-            'UpdateKexpPlaylistSchedule',
-            schedule=Schedule.cron(hour="10", minute="45", day="*", month="*", year="*"),
-        ).add_target(LambdaFunction(kexp_function))
-
-        kcrw_function = DockerImageFunction(
-            self,
-            'UpdateKcrwPlaylist',
-            memory_size=512,
-            code=DockerImageCode.from_image_asset(
-                directory=getcwd(),
-                platform=Platform.LINUX_ARM64,
-                cmd=['src.update_kcrw_playlist.lambda_handler']
-            ),
-            architecture=Architecture.ARM_64,
-            environment={'SECRET_ARN': secret.secret_arn},
-            timeout=Duration.minutes(15)
-        )
-        secret.grant_read(kcrw_function)
-
-        Rule(
-            self,
-            'UpdateKcrwPlaylistSchedule',
-            schedule=Schedule.cron(hour="11", minute="00", day="*", month="*", year="*"),
-        ).add_target(LambdaFunction(kcrw_function))
-
-        colors_function = DockerImageFunction(
-            self,
-            'UpdateColorsPlaylist',
-            memory_size=512,
-            code=DockerImageCode.from_image_asset(
-                directory=getcwd(),
-                platform=Platform.LINUX_ARM64,
-                cmd=['src.update_colors_playlist.lambda_handler']
-            ),
-            architecture=Architecture.ARM_64,
-            environment={'SECRET_ARN': secret.secret_arn},
-            timeout=Duration.minutes(15)
-        )
-        secret.grant_read(colors_function)
-
-        Rule(
-            self,
-            'UpdateColorsPlaylistSchedule',
-            schedule=Schedule.cron(hour="11", minute="15", day="*", month="*", year="*"),
-        ).add_target(LambdaFunction(colors_function))
-
-        audiotree_function = DockerImageFunction(
-            self,
-            'UpdateAudiotreePlaylist',
-            memory_size=512,
-            code=DockerImageCode.from_image_asset(
-                directory=getcwd(),
-                platform=Platform.LINUX_ARM64,
-                cmd=['src.update_audiotree_playlist.lambda_handler']
-            ),
-            architecture=Architecture.ARM_64,
-            environment={'SECRET_ARN': secret.secret_arn},
-            timeout=Duration.minutes(15)
-        )
-        secret.grant_read(audiotree_function)
-
-        Rule(
-            self,
-            'UpdateAudiotreePlaylistSchedule',
-            schedule=Schedule.cron(hour="11", minute="30", day="*", month="*", year="*"),
-        ).add_target(LambdaFunction(audiotree_function))
+            schedule=Schedule.cron(hour='10', minute='30', day='*', month='*', year='*'),
+        ).add_target(LambdaFunction(update_daily_blend))
 
 
 if __name__ == '__main__':

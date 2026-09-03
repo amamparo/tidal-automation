@@ -19,6 +19,12 @@ class Environment:
     def get(self, name: str) -> Optional[str]:
         return self.__secret_environment.get(name, environ.get(name))
 
+    def require(self, name: str) -> str:
+        value = self.get(name)
+        if value is None:
+            raise KeyError(f'missing environment variable: {name}')
+        return value
+
     @staticmethod
     def __import_from(secret_arn: str) -> Dict[str, str]:
         secret_string = boto3.client('secretsmanager').get_secret_value(SecretId=secret_arn)['SecretString']

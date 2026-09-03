@@ -28,15 +28,3 @@ token:
 
 daily_blend:
 	poetry run python -m src.update_daily_blend
-
-kexp:
-	poetry run python -m src.update_kexp_playlist
-
-kcrw:
-	poetry run python -m src.update_kcrw_playlist
-
-colors:
-	poetry run python -m src.update_colors_playlist
-
-audiotree:
-	poetry run python -m src.update_audiotree_playlist

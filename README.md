@@ -1,4 +1,7 @@
-# python-template
+# tidal-automation
+
+Rebuilds a Tidal "Daily Blend" playlist every day from Tidal's Daily Discover and New Arrivals mixes
+plus last.fm recommendations. Runs as a scheduled AWS Lambda deployed with CDK.
 
 ## Requirements
 * Python 3.13
@@ -10,7 +13,12 @@
 make install
 ```
 
-## Run
+## Run locally
 ```shell
-make run
+make daily_blend
+```
+
+## Deploy
+```shell
+make deploy
 ```
