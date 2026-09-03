@@ -10,20 +10,20 @@ This is a Tidal music automation service that synchronizes Last.fm recommendatio
 
 ### Setup & Dependencies
 ```bash
-make install        # Install Python dependencies via Poetry
+just install        # Install Python dependencies via Poetry
 ```
 
 ### Testing
 ```bash
-make test          # Run all unit tests
+just test          # Run all unit tests
 poetry run python -m unittest tests.test_last_fm_matching.LastFmMatching.test_specific_test  # Run specific test
 ```
 
 ### Code Quality
 ```bash
-make lint          # Run pylint on src, tests, and aws directories
-make types         # Run mypy type checking
-make check         # Run lint, types, test, and synth (full quality check)
+just lint          # Run pylint on src, tests, and aws directories
+just types         # Run mypy type checking
+just check         # Run lint, types, test, and synth (full quality check)
 ```
 
 ### Coding guidelines
