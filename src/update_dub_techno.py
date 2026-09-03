@@ -1,5 +1,5 @@
 # pylint: disable=duplicate-code
-from collections import defaultdict
+from collections import Counter, defaultdict
 from datetime import date
 from math import log
 from random import Random
@@ -19,9 +19,8 @@ from src.tidal import Tidal
 
 HOTTEST_MIX_WEIGHT = 5.0
 RECENCY_HALF_LIFE_DAYS = 180.0
-PREFERRED_STYLES = frozenset({'Dub Techno', 'Minimal'})
+STYLE_PRIORITIES = {'Dub Techno': 4.0, 'Minimal': 2.0, 'Techno': 1.0}
 DISCOURAGED_STYLES = frozenset({'Ambient', 'IDM'})
-BOTH_PREFERRED_STYLES_PREMIUM = 2.0
 DISCOURAGED_STYLE_PENALTY = 0.1
 LOOKUP_BUDGET = 400
 MATCH_DEADLINE_SECONDS = 420
@@ -29,22 +28,31 @@ MINIMUM_CANDIDATES = 400
 CONSECUTIVE_MISS_LIMIT = 40
 
 
-def style_multiplier(categories: Set[str]) -> float:
-    premium = BOTH_PREFERRED_STYLES_PREMIUM if PREFERRED_STYLES <= categories else 1.0
-    return premium * DISCOURAGED_STYLE_PENALTY ** len(DISCOURAGED_STYLES & categories)
+def style_premiums(tracklists: List[Tracklist]) -> Dict[str, float]:
+    tagged = Counter(style for tracklist in tracklists for style in STYLE_PRIORITIES
+                     if style in tracklist.categories)
+    return {style: priority * len(tracklists) / tagged[style]
+            for style, priority in STYLE_PRIORITIES.items() if tagged[style]}
 
 
-def mix_weight(rank: int, mix_count: int, age_days: int, categories: Set[str]) -> float:
+def style_multiplier(categories: Set[str], premiums: Dict[str, float]) -> float:
+    premium = sum(premium for style, premium in premiums.items() if style in categories)
+    return (premium or 1.0) * DISCOURAGED_STYLE_PENALTY ** len(DISCOURAGED_STYLES & categories)
+
+
+def mix_weight(rank: int, mix_count: int, age_days: int, categories: Set[str],
+               premiums: Dict[str, float]) -> float:
     hotness = HOTTEST_MIX_WEIGHT ** (1 - rank / mix_count)
     recency = RECENCY_HALF_LIFE_DAYS / (RECENCY_HALF_LIFE_DAYS + max(age_days, 0))
-    return hotness * recency * style_multiplier(categories)
+    return hotness * recency * style_multiplier(categories, premiums)
 
 
 def weigh_candidates(tracklists: List[Tracklist], today: date) -> Dict[MixTrack, float]:
     weights: Dict[MixTrack, float] = defaultdict(float)
+    premiums = style_premiums(tracklists)
     for rank, tracklist in enumerate(tracklists):
         weight = mix_weight(rank, len(tracklists), (today - tracklist.recorded_on).days,
-                            tracklist.categories)
+                            tracklist.categories, premiums)
         for track in tracklist.tracks:
             weights[track] += weight
     return weights

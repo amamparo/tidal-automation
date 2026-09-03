@@ -21,11 +21,12 @@ stated as measured was re-verified against the live API, the live Tidal account,
 | **MediaWiki JSON API, never HTML scraping** | The `Special:Search` page renders results **client-side**: the served HTML contains `<div id="mixesdb-advanced-search-mount"></div>` and **zero** result rows. `api.php?action=query&list=search` honors MixesDB's custom keywords (`style:`, `date:`, `hasplayer`, `-tracklist:none`) and returns all 122 hits in one response. |
 | **`srsort=hotness_desc` — hotness is NOT lost** | The stated ground truth is wrong. Bare `srsort=hotness` returns `badvalue`; **`hotness_desc` is an accepted value** (`action=paraminfo&modules=query+search` lists `hotness_asc`/`hotness_desc`). Verified live: 122 hits, no warning, and an ordering that differs from `relevance` (relevance leads with `Black Merlin - Monument 533`; hotness leads with `The Bug - RA Podcast (RA.1052)`). Never send bare `sort=hotness` to the custom UI modules — their `sortdir` defaults to `asc`, silently giving the *coldest* mixes. |
 | **Page wikitext + our own parser, not `action=mixesdbsearchjsonld`** | The JSON-LD module returns pre-parsed tracks but emits `@type: Event` with **no `track[]` for 26 of 122 pages** (every `@ Venue` live set — 19% of the pool), strips ~99% of remix parentheticals, and leaks `[0??] Andy Stott`-shaped artists. It is also an undocumented, versionless custom module. `prop=revisions` is core MediaWiki and the parser below is exact. |
-| **Full rebuild every run; no rotation queue** | `Tidal.set_playlist_tracks` rewrites the playlist wholesale regardless, so a rotation queue buys nothing operationally while requiring a new `Tidal` method that sits exactly on tidalapi's hard 100-item `Playlist.items()` cap plus eviction arithmetic that every reviewed formulation got wrong. Freshness comes from a **day-seeded weighted draw** instead: consecutive days' playlists overlap by only ~9%. |
+| **Differential playlist writes, so date-added survives** | `Tidal.set_playlist_tracks` no longer clears and re-adds. It removes only the tracks that are leaving and appends only the ones arriving, so a track that survives an update keeps its original date-added and the playlist can be sorted by it to see what is new versus what has been hanging around. Verified live: 87 of 87 survivors kept their timestamp while 13 newcomers took a fresh one. This applies to **every** playlist in the repo, the daily blend included. |
+| **No caps anywhere in selection** | No per-mix, per-artist or per-style quota. Every cap that was proposed got replaced by a weight, because a cap is an arbitrary cliff and a weight is a smooth, explainable preference. The one bound left is the search API's own `srlimit`. |
 | **A weighted lottery, and no quotas of any kind** | Tracks are drawn without replacement with probability proportional to the weight of the mix they came from, so hotter and more recent mixes surface more tracks *by likelihood* rather than by quota. **Both** `MAX_TRACKS_PER_MIX` and `MAX_TRACKS_PER_ARTIST` are deleted — see below. Selection is now entirely a function of the weights, which is the only thing left to tune. |
 | **No artist cap either — but on evidence, not symmetry** | Removing the mix cap was safe because the weights *already encode the mix*; the cap was redundant. That argument does **not** transfer: nothing in `mix_weight` mentions artists, so dropping `MAX_TRACKS_PER_ARTIST` is a real, if small, loss of control justified only by the measured shape of the pool. It holds comfortably: the pool is 2085 tracks across **1416 credited artists, 78% of whom appear exactly once**, and the loop consumes only ~6% of it. Over **3000 simulated days**, dropping the cap moved distinct artists per 100 from 95.9 to 95.4 and produced a worst case of **7 tracks by one artist**, p99 of 4. |
 | **Lazy resolution with early exit** | The pool is 2085 candidates for 100 slots. Resolving all of them costs ~30 min against a 15-minute Lambda ceiling. Measured live: 100 tracks land in ~130 lookups ≈ 2 minutes. |
-| **Guards before the write, raising not returning** | `set_playlist_tracks` does `clear()` **then** `add()`, and `tidalapi`'s `list_validate` raises `ValueError('An empty list was provided.')` *after* the wipe. Worse, a typo'd or renamed keyword returns HTTP 200 with `totalhits: 0`, `error: None`, `warnings: None` — verified. Floors turn a silent empty playlist into a loud Lambda error. |
+| **Guards before the write, raising not returning** | `set_playlist_tracks` removes departing tracks **before** adding arriving ones, and `tidalapi`'s `list_validate` raises `ValueError('An empty list was provided.')` on an empty add. Worse, a typo'd or renamed keyword returns HTTP 200 with `totalhits: 0`, `error: None`, `warnings: None` — verified. Floors turn a silent empty playlist into a loud Lambda error. |
 | **Module-scoped `# pylint: disable=duplicate-code`, not a `.pylintrc` change** | R0801 genuinely fails the build: a second `src/update_*.py` with the conventional `lambda_handler` + `__main__` tail scores **9.97/10** against `fail-under=10.0`, exit 8. Verified both fixes; the one-line module pragma restores **10.00/10** without loosening `min-similarity-lines` (repo default is **4**) for the whole repo, without a new `src/lambda_entrypoint.py` module, and without touching the deployed daily blend. |
 | **`LastFmTrack` stays where it is** | `find_equivalent_track` takes `LastFmTrack(title, artists)`, which is really a generic track query. Renaming it to `TrackQuery` and moving it into `src/tidal.py` touches 13 sites in the matcher, flips a public signature, and inverts the coupling so a pure-HTTP module imports `tidalapi` — all for zero behaviour change. `src/mixes_db.py` imports `LastFmTrack` directly. If the name grates, that rename is a separate mechanical commit. |
 
@@ -53,18 +54,22 @@ GET https://www.mixesdb.com/w/api.php
 
 Live today: Dub Techno **122**, Minimal **132**, shared 15, **union 239**.
 
-**Merging two hotness rankings.** Each search is independently `hotness_desc`, and a mix's position means
-different things in lists of different lengths, so rank is normalised before merging: a title's sort key is the
-**best (lowest) `position / len(titles)`** across the searches it appears in. `MAX_MIXES = 200` then keeps the
-hottest 200 of the union, bounding traffic at 2 searches + 4 wikitext batches = 6 requests.
+**Merging the rankings — raw position, not normalised.** Each search is independently `hotness_desc` over the
+*same global* hotness metric, so position 5 in one list and position 5 in another are directly comparable.
+Normalising by list length is what breaks: Techno returns 2785 hits, so its position 5 would normalise to
+0.002 and outrank *everything* in Dub Techno's 122. A title's sort key is therefore the best (lowest)
+`(position, style_priority)` across the searches it appears in, with `SEARCHED_STYLES` ordered most-preferred
+first so ties go to Dub Techno. The merge is then a round-robin interleave of the three lists that degrades
+naturally as the shorter ones run out — Dub Techno's 122 entries all land in the hot end of the ranking, and
+Techno's long tail falls where the hotness weight is lowest. **No cap is needed and none is applied.**
 
 Each search is floored at `MINIMUM_SEARCH_HITS` **individually**, not on the union — a renamed `Minimal`
 keyword must fail loudly rather than hide behind a healthy Dub Techno count.
 
 Verified live today: `error: None`, `warnings: None`, `totalhits: 122`, 122 results, no `continue`. `srlimit=max`
 resolves to 500 (`highmax` 5000 requires `apihighlimits`, which anonymous clients do not have). The first
-`MAX_MIXES = 200` titles are kept, which bounds MixesDB traffic to ≤6 requests per run forever and is why no
-`sroffset` continuation loop is needed.
+Every returned title is kept; `srlimit=max` (500 per style) is the only bound, and it is the API's, not ours.
+Today that is 704 contributing mixes and ~13k candidates, fetched in 3 searches + 15 wikitext batches ≈ 78 s.
 
 `profile=mixes` from the UI URL is omitted — verified a no-op *for this query* (identical hit count with and
 without). It is not a no-op in general.
@@ -179,38 +184,66 @@ replacement into one weighted random permutation.
 style is a third factor that pushes the playlist toward rhythmic material:
 
 ```python
-def style_multiplier(categories: Set[str]) -> float:
-    premium = BOTH_PREFERRED_STYLES_PREMIUM if PREFERRED_STYLES <= categories else 1.0
-    return premium * DISCOURAGED_STYLE_PENALTY ** len(DISCOURAGED_STYLES & categories)
+def style_premiums(tracklists: List[Tracklist]) -> Dict[str, float]:
+    tagged = Counter(style for tracklist in tracklists for style in STYLE_PRIORITIES
+                     if style in tracklist.categories)
+    return {style: priority * len(tracklists) / tagged[style]
+            for style, priority in STYLE_PRIORITIES.items() if tagged[style]}
 
 
-def mix_weight(rank: int, mix_count: int, age_days: int, categories: Set[str]) -> float:
+def style_multiplier(categories: Set[str], premiums: Dict[str, float]) -> float:
+    premium = sum(premium for style, premium in premiums.items() if style in categories)
+    return (premium or 1.0) * DISCOURAGED_STYLE_PENALTY ** len(DISCOURAGED_STYLES & categories)
+
+
+def mix_weight(rank: int, mix_count: int, age_days: int, categories: Set[str],
+               premiums: Dict[str, float]) -> float:
     hotness = HOTTEST_MIX_WEIGHT ** (1 - rank / mix_count)
     recency = RECENCY_HALF_LIFE_DAYS / (RECENCY_HALF_LIFE_DAYS + max(age_days, 0))
-    return hotness * recency * style_multiplier(categories)
+    return hotness * recency * style_multiplier(categories, premiums)
 ```
 
 **Style tags cost no extra requests** — they are the `[[Category:...]]` lines already in the wikitext fetched
 for the tracklists, read by `categories_of`. That returns *all* categories (year, artist, show, style); only
-the four names in `PREFERRED_STYLES` and `DISCOURAGED_STYLES` are ever tested, so no style-vs-other-category
+the names in `STYLE_PRIORITIES` and `DISCOURAGED_STYLES` are ever tested, so no style-vs-other-category
 classification is needed.
+
+**Priorities are corpus-normalised, which is what makes the numbers mean something.**
+`STYLE_PRIORITIES = {'Dub Techno': 4.0, 'Minimal': 2.0, 'Techno': 1.0}` is a statement of *relative
+importance*, not a tuned constant: dividing by how many mixes actually carry each tag makes a style's
+aggregate pull proportional to its priority rather than to its corpus size, and self-adjusting as MixesDB
+changes. Without it the ratios are meaningless — Techno's 541 tagged mixes against Dub Techno's 117 means a
+flat 2.0-vs-1.25 premium still let Techno-only mixes take **63%** of the playlist. Measured today, premiums
+come out at Dub Techno 24.07, Minimal 10.91, Techno 1.30, giving exactly the intended cascade:
+
+| Mix tagged | Premium | Share of the draw |
+|---|---|---|
+| Dub Techno + Minimal + Techno | 36.28 | — |
+| Dub Techno + Minimal | 34.98 | — |
+| Dub Techno + Techno | 25.37 | — |
+| Dub Techno only | 24.07 | — |
+| Minimal + Techno | 12.22 | — |
+| Minimal only | 10.91 | — |
+| Techno only | 1.30 | — |
+| **any Dub Techno tag** | | **57.9%** of the draw from **14.9%** of the pool |
+
+Adjacent tags widen the pool from 122 mixes to 704 while Dub Techno still supplies the majority of the
+playlist, which is the point: the playlist is called Dub Techno, and Minimal and Techno are there to feed it.
 
 **A penalty, not a blacklist**, for `Ambient` / `IDM`: `DISCOURAGED_STYLE_PENALTY = 0.1` per matching tag, so
 one tag is a 10x cut and both is a **100x** cut. Harshest-for-both falls out of the exponent with no special
-case. Measured over the 239-mix union, tracks per 100 originating in an Ambient/IDM-tagged mix:
+case. Measured over today's 704-mix corpus, 39 of which (5.5%) carry `Ambient` or `IDM`:
 
-| | Ambient/IDM tracks per 100 | Both-preferred tracks per 100 |
+| | Ambient/IDM tracks per 100 | Dub Techno tracks per 100 |
 |---|---|---|
-| no style weighting | **18.25** (worst 28) | 4.66 |
-| **premium 2.0, penalty 0.1 (chosen)** | **2.18** (worst 8) | **10.04** |
-| blacklist | 0 | 10.18 |
+| no style penalty | **18.67** (worst 32) | 64.7 |
+| **penalty 0.1 (chosen)** | **2.37** (worst 10) | 58.3 |
+| blacklist | 0 | 61.4 |
 
-The tag describes the **mix, not the track**: 29 of 239 mixes carry `Ambient`, and a dub techno set with one
-beatless interlude is tagged exactly like a genuinely ambient one. Blacklisting discards 12% of the corpus
-wholesale on a noisy mix-level signal; the penalty removes ~88% of the effect and degrades gracefully if the
-corpus shifts. 15 of 239 mixes carry both preferred styles, and **no mix today carries both a premium and a
-penalty** — the formula composes correctly if one ever does (2.0 x 0.1 = 0.2). Switching to a blacklist is a
-one-line change and the pool has room for it (2713 candidates against ~130 needed).
+The tag describes the **mix, not the track**: a dub techno set with one beatless interlude is tagged exactly
+like a genuinely ambient one, so blacklisting throws away that mix's rhythmic tracks on a noisy mix-level
+signal. The penalty removes ~87% of the effect and degrades gracefully if the corpus shifts. Switching to a
+blacklist is a one-line change and the pool has room for it (12018 candidates against ~130 needed).
 
 `rank` is the mix's position in the `hotness_desc` search result — the API exposes hotness only as an
 ordering, never a score, so rank is all there is. `HOTTEST_MIX_WEIGHT = 5.0` makes the hottest mix's tracks 5×
@@ -418,9 +451,9 @@ change what the playlist *is* belong in a commit, not in console-editable functi
 `TIDAL_REFRESH_TOKEN` is already supplied by the shared Secrets Manager secret; `grant_read` is per-function.
 
 Module constants: `API_URL`, `USER_AGENT`, `REQUEST_TIMEOUT`, `CRAWL_DELAY_SECONDS`, `SEARCHED_STYLES`,
-`TITLES_PER_REQUEST`, `MAX_MIXES`, `MINIMUM_SEARCH_HITS`, `MINIMUM_TITLE_LENGTH` in `src/mixes_db.py`;
-`HOTTEST_MIX_WEIGHT`, `RECENCY_HALF_LIFE_DAYS`, `PREFERRED_STYLES`, `DISCOURAGED_STYLES`,
-`BOTH_PREFERRED_STYLES_PREMIUM`, `DISCOURAGED_STYLE_PENALTY`, `LOOKUP_BUDGET`,
+`TITLES_PER_REQUEST`, `MINIMUM_SEARCH_HITS`, `MINIMUM_TITLE_LENGTH` in `src/mixes_db.py`;
+`HOTTEST_MIX_WEIGHT`, `RECENCY_HALF_LIFE_DAYS`, `STYLE_PRIORITIES`, `DISCOURAGED_STYLES`,
+`DISCOURAGED_STYLE_PENALTY`, `LOOKUP_BUDGET`,
 `MATCH_DEADLINE_SECONDS`, `MINIMUM_CANDIDATES`, `CONSECUTIVE_MISS_LIMIT` in `src/update_dub_techno.py`.
 
 The style strings contain a `"` and would be awkward and error-prone in a CDK environment block; changing them
@@ -560,7 +593,7 @@ write floor then decides whether that is publishable. The rate could drift; noth
 `Tidal.__call_api` retries 10 times sleeping up to 60 s each: **302 s** with no `Retry-After`, **549 s** with
 `Retry-After: 60`, for a *single* call. Budget: ~25 s of MixesDB and startup + 420 s of matching leaves ~455 s
 for the write, which absorbs the first case but not the second. If a hard kill lands between
-`set_playlist_tracks`'s `clear()` and its `add()`, the playlist is empty until the next day's run repairs it.
+`set_playlist_tracks`'s removal and its add, the playlist is short until the next day's run repairs it.
 The real fix is a deadline inside `__call_api`, deliberately out of scope — see below.
 
 **`tidalapi` sets no HTTP timeout anywhere** (verified: zero occurrences of `timeout` in `request.py`,
@@ -625,11 +658,13 @@ stable path. The fragile parts are the custom keywords (`style:`, `date:`, `hasp
 `totalhits` floor is what catches them being renamed.
 
 **Corpus growth past `srlimit` 500** would silently truncate, since no `sroffset` continuation is implemented.
-Today: 122 hits, no `continue`. `MAX_MIXES = 200` caps consumption well below that, but widening the window is
+Today: 122 Dub Techno hits, no `continue`; Techno's 2785 hits are truncated to 500 by `srlimit=max`, which is
+the one place the corpus is silently cut — by the API, not by us. Widening the window is
 the change that would trip it — `date:2026,2025` already returns 279.
 
-**`set_playlist_tracks` is clear-then-add and nothing can make it atomic.** The floors prevent *starting* a bad
-write; they cannot cover a crash between the two calls.
+**`set_playlist_tracks` is remove-then-add and nothing can make it atomic.** The floors prevent *starting* a
+bad write; they cannot cover a crash between the two calls. The differential write makes this strictly less
+damaging than the old clear-then-add: a crash now loses only the departing tracks, not the whole playlist.
 
 **`UserPlaylist.add(..., limit=len(track_ids))` sits exactly on tidalapi's documented 100-item ceiling** and
 sends all ids in one POST with no chunking. Do not raise `DUB_TECHNO_SIZE` above 100 without chunking

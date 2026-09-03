@@ -3,9 +3,12 @@
 Rebuilds two Tidal playlists on a daily schedule, each as its own AWS Lambda deployed with CDK:
 
 * **Daily Blend** — from Tidal's Daily Discover and New Arrivals mixes plus last.fm recommendations.
-* **Dub Techno** — from the tracklists of the currently hottest Dub Techno and Minimal DJ mixes on
+* **Dub Techno** — from the tracklists of the currently hottest Dub Techno, Minimal and Techno DJ mixes on
   [MixesDB](https://www.mixesdb.com), picked by a weighted lottery that favours hotter and more recent mixes,
-  rewards mixes tagged both styles, and heavily discounts ones tagged Ambient or IDM.
+  ranks Dub Techno above the adjacent tags, and heavily discounts mixes tagged Ambient or IDM.
+
+Both rebuild differentially: a track that survives an update keeps its original date-added, so sorting the
+playlist by that shows what is new and what has been hanging around.
 
 ## Requirements
 * Python 3.13

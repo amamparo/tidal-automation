@@ -12,9 +12,8 @@ API_URL = 'https://www.mixesdb.com/w/api.php'
 USER_AGENT = 'tidal-automation/1.0 (+https://github.com/amamparo/tidal-automation)'
 REQUEST_TIMEOUT = (5.0, 30.0)
 CRAWL_DELAY_SECONDS = 4
-SEARCHED_STYLES = ('Dub Techno', 'Minimal')
+SEARCHED_STYLES = ('Dub Techno', 'Minimal', 'Techno')
 TITLES_PER_REQUEST = 50
-MAX_MIXES = 200
 MINIMUM_SEARCH_HITS = 40
 MINIMUM_TITLE_LENGTH = 3
 MID_YEAR_MONTH = 7
@@ -147,12 +146,12 @@ class MixesDb:
         return tracklists
 
     def __search_titles(self, today: date) -> List[str]:
-        hotness: Dict[str, float] = {}
-        for style in SEARCHED_STYLES:
-            titles = self.__search_style(today, style)
-            for position, title in enumerate(titles):
-                hotness[title] = min(hotness.get(title, 1.0), position / len(titles))
-        return sorted(hotness, key=lambda title: hotness[title])[:MAX_MIXES]
+        ranking: Dict[str, Tuple[int, int]] = {}
+        for priority, style in enumerate(SEARCHED_STYLES):
+            for position, title in enumerate(self.__search_style(today, style)):
+                rank = (position, priority)
+                ranking[title] = min(ranking.get(title, rank), rank)
+        return sorted(ranking, key=lambda title: ranking[title])
 
     def __search_style(self, today: date, style: str) -> List[str]:
         query = search_query(today, style)
