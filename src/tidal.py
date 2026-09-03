@@ -4,7 +4,7 @@ import unicodedata
 from collections import deque
 from functools import partial
 from threading import Lock
-from typing import Callable, Deque, Dict, Iterable, List, Optional, Set, TypeVar, cast
+from typing import Callable, Deque, Dict, Iterable, List, Optional, Set, Tuple, TypeVar, cast
 
 from injector import inject, singleton
 from requests.exceptions import (  # type: ignore[import-untyped]
@@ -35,6 +35,19 @@ TRACK_VERSION_SUFFIX = re.compile(
     re.IGNORECASE,
 )
 GENERIC_REMIX_SUFFIX = re.compile(r'\s*\((?:Remix|Mix)\)', re.IGNORECASE)
+VERSION_MARKER = re.compile(r'[\(\[]([^)\]]*)[\)\]]')
+NEUTRAL_VERSION_MARKER = re.compile(
+    r'^(?:original(?:\s+(?:mix|version))?|album\s+version|single\s+version|'
+    r'(?:\d{4}\s+)?remaster(?:ed)?(?:\s+\d{4})?|explicit|clean|stereo|mono|'
+    r'feat\.?|ft\.?|featuring|with|w/)\b',
+    re.IGNORECASE,
+)
+VERSION_NOUN = re.compile(
+    r'\b(?:remix|rmx|edit|dub|mix|version|rework|refix|reshape|retouch|reassembly|reprise|'
+    r'revision|interpretation|flip|treatment|remake|vip|bootleg|instrumental|acapella|live|'
+    r'extended|radio)\b',
+    re.IGNORECASE,
+)
 DASH_REMASTER_SUFFIX = re.compile(r'\s*-\s*\d{4}\s+Remaster(?:ed)?', re.IGNORECASE)
 TITLE_NOISE_SUFFIXES = (COLLABORATION_PARENTHETICAL, TRACK_VERSION_SUFFIX, GENERIC_REMIX_SUFFIX, DASH_REMASTER_SUFFIX)
 
@@ -59,7 +72,7 @@ class Tidal:
         self.__tidal = NullArtistTolerantSession()
         self.__tidal.token_refresh(environment.require('TIDAL_REFRESH_TOKEN'))
         self.__tidal.load_oauth_session('Bearer', cast(str, self.__tidal.access_token))
-        self.__track_find_cache: Dict[LastFmTrack, Optional[Track]] = {}
+        self.__track_find_cache: Dict[Tuple[LastFmTrack, bool], Optional[Track]] = {}
         self.__album_cache: Dict[str, Album] = {}
 
         self.__max_requests_per_second = 2
@@ -139,23 +152,27 @@ class Tidal:
         if arriving:
             self.__call_api(lambda: playlist.add(arriving, limit=len(arriving)))
 
-    def find_equivalent_track(self, last_fm_track: LastFmTrack) -> Optional[Track]:
-        if last_fm_track in self.__track_find_cache:
-            return self.__track_find_cache[last_fm_track]
+    def find_equivalent_track(self, last_fm_track: LastFmTrack, match_version: bool = False) -> Optional[Track]:
+        cache_key = (last_fm_track, match_version)
+        if cache_key in self.__track_find_cache:
+            return self.__track_find_cache[cache_key]
 
         fixed = self.__fix_last_fm_track(last_fm_track)
         query = self.__search_query(fixed)
         results = self.__call_api(lambda: self.__tidal.search(query, models=[Track])['tracks'])
-        match = self.__best_match(fixed, results)
+        match = self.__best_match(fixed, results, last_fm_track.title if match_version else None)
 
-        self.__track_find_cache[last_fm_track] = match
+        self.__track_find_cache[cache_key] = match
         return match
 
-    def __best_match(self, searched: LastFmTrack, results: List[Track]) -> Optional[Track]:
+    def __best_match(self, searched: LastFmTrack, results: List[Track],
+                     versioned_title: Optional[str] = None) -> Optional[Track]:
         various_artists_versions: List[Track] = []
         alternate_versions: List[Track] = []
 
         for result in results:
+            if versioned_title is not None and not self.__versions_match(versioned_title, result):
+                continue
             if not self.__titles_match(searched.title, result.name or ''):
                 continue
             track_artists = {artist.name for artist in result.artists or []}
@@ -268,6 +285,29 @@ class Tidal:
         if not normalized_searched or not normalized_candidate:
             return False
         return normalized_searched in normalized_candidate or normalized_candidate in normalized_searched
+
+    @staticmethod
+    def __version_markers(title: str) -> Set[str]:
+        markers = (marker.strip() for marker in VERSION_MARKER.findall(title))
+        return {Tidal.__normalize_title(marker) for marker in markers
+                if marker and not NEUTRAL_VERSION_MARKER.match(marker)}
+
+    @staticmethod
+    def __versions_match(searched_title: str, result: Track) -> bool:
+        searched = Tidal.__version_markers(searched_title)
+        candidate = Tidal.__version_markers(result.name or '')
+        if result.version:
+            candidate |= Tidal.__version_markers(f'({result.version})')
+        if searched == candidate:
+            return True
+        if candidate - searched:
+            return False
+        credited = {Tidal.__normalize_artist_name(artist.name) for artist in (result.artists or [])}
+        remixers = {Tidal.__normalize_title(VERSION_NOUN.sub(' ', marker)) for marker in searched - candidate}
+        remixers = {remixer for remixer in remixers if len(remixer) > 2}
+        return bool(remixers) and all(
+            any(remixer in artist for artist in credited) for remixer in remixers
+        )
 
     @staticmethod
     def __normalize_artist_name(name: Optional[str]) -> str:

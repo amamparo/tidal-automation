@@ -107,7 +107,7 @@ and `Accept-Encoding: gzip`, `timeout=(5.0, 30.0)`, and `sleep(4)` before every 
 ### 4. The tracklist parser — `parse_tracklist` / `tracklist_lines` / `parse_line`
 
 Pure functions in `src/mixes_db.py`. This spec was reimplemented from scratch for this plan and run over all
-122 pages: **2719 raw candidate lines → 2172 accepted → 2085 unique (artist, title) from 117 of 122 pages.**
+122 pages: **2719 raw candidate lines → 2152 accepted → 2085 unique (artist, title) from 117 of 122 pages.**
 
 ```python
 TRACKLIST_HEADING = re.compile(r'^==+\s*Tracklist\s*==+\s*$', re.MULTILINE | re.IGNORECASE)
@@ -159,9 +159,37 @@ summary line is the markup-drift canary instead.
 - **Do not split multi-artist strings.** `Tidal.__artist_name_variants` already expands `,`, `&`, ` and `,
   `vs.` and `feat.`, and `Tidal.__search_query` concatenates *every* variant into one query, so adding a
   ` X ` / ` + ` splitter measurably makes the search worse. The unhandled forms are **7 of 2085 pairs**.
-- **Do not strip remix parentheticals.** 299 of the unique titles carry one and 116 say "Remix". Keeping them
-  sends the remix credit to Tidal at no matching cost (the substring test is bidirectional), and stripping
-  would collapse genuinely distinct records into duplicates.
+- **Do not strip remix parentheticals.** 309 of the accepted titles carry one and 116 say "Remix". They are
+  load-bearing: the version a DJ played is the version that belongs in the playlist, and `Tidal`'s opt-in
+  version matching compares them (see below).
+
+### 4b. Version fidelity — `Tidal.__versions_match`
+
+**A remix must not match the original, or vice versa.** A dub techno remix of a non-dub-techno record only
+belongs here *because* of the remix; matching it to the original imports the wrong genre. The worked example
+is `Nitzer Ebb - Join In The Chant (Surgeon Edit)` — 1987 EBM that qualifies solely through Surgeon.
+
+`find_equivalent_track(track, match_version=True)` makes `__best_match` skip any result whose version
+disagrees. Rules, in order:
+- Any parenthetical or bracketed marker is a **distinct version** unless it is neutral (`Original Mix`,
+  `Album Version`, `Remastered 2022`, `Explicit`) or a collaborator credit (`feat.`, `with`). This is
+  deliberately an inverted default: a whitelist of version words cannot keep up with `Reshape`, `Reassembly`,
+  `Retouch`, `Reprise`, `V2`, `A Capella`.
+- **Tidal's separate `version` field is read too.** 11.9% of results populate it (`Original Mix`,
+  `Adriana Lopez Re-edit`) and it is almost disjoint from parenthetical names — 521 of 4366 captured results
+  carry one, only 20 of those also have a paren in `name`.
+- **A remixer credited as an artist counts as the remix.** Tidal often lists
+  `Dreaming Trees (Forest Drive West Remix)` as *Dreaming Trees* by "Polygonia, Forest Drive West"; rejecting
+  that would throw away a correct match.
+
+**It is opt-in and off by default**, so `update_daily_blend` is untouched. Verified: the 23 last.fm tests
+show the same 2 pre-existing failures before and after, delta zero.
+
+**Measured on a 200-candidate offline replay** that reproduces `__best_match` exactly (200/200 against the
+live capture): winners go **151 → 143**. The check runs *inside* `__best_match`, not after it, which is worth
+5 of those: for `Nacho Marco - Midnight Blue` the matcher was picking the Satoshi Tomiie Remix while plain
+*Midnight Blue* sat in the same result set. The remaining 8 losses are cases where Tidal genuinely lacks the
+version the DJ played — a miss, which is the intended outcome.
 
 ### 5. Candidate ordering — the weighted lottery
 
@@ -638,7 +666,7 @@ lines, 3 with unbalanced source brackets, 2 pages with two tracks concatenated o
 `X (Kessell Remix)` can land on the original and vice versa. Right track family, sometimes wrong version —
 acceptable for a genre playlist, and stripping the parenthetical would be strictly worse.
 
-**All figures are a 2026-09-03 snapshot**: 122 hits, 2719 raw lines, 2172 accepted, 2085 unique candidates from
+**All figures are a 2026-09-03 snapshot**: 122 hits, 2719 raw lines, 2152 accepted, 2085 unique candidates from
 117 pages, 76.7% Tidal hit rate. The floors are what turn drift into a loud failure instead of a bad playlist.
 
 ---

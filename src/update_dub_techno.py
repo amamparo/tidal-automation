@@ -1,4 +1,5 @@
 # pylint: disable=duplicate-code
+import re
 from collections import defaultdict
 from datetime import date
 from math import log
@@ -14,7 +15,7 @@ from tqdm import tqdm
 
 from src.environment import Environment
 from src.last_fm import LastFmTrack
-from src.mixes_db import MixesDb, MixTrack, Tracklist
+from src.mixes_db import MixesDb, MixTrack, Tracklist, searchable
 from src.tidal import Tidal
 
 HOTTEST_MIX_WEIGHT = 5.0
@@ -25,6 +26,7 @@ LOOKUP_BUDGET = 400
 MATCH_DEADLINE_SECONDS = 420
 MINIMUM_CANDIDATES = 400
 CONSECUTIVE_MISS_LIMIT = 40
+TITLE_QUALIFIER = re.compile(r'\s+[(\[].*$|\s+\d{1,3}$')
 
 
 def mix_weight(rank: int, mix_count: int, age_days: int, categories: Set[str]) -> float:
@@ -49,15 +51,23 @@ def weighted_draw(weights: Dict[MixTrack, float], seed: int) -> List[MixTrack]:
     return sorted(weights, key=lambda track: -log(random.random()) / weights[track])
 
 
+def is_same_recording(mix_title: str, found_name: str) -> bool:
+    searched = searchable(mix_title)
+    return searchable(found_name) in searched or searchable(TITLE_QUALIFIER.sub('', found_name)) in searched
+
+
 def find_track_id(tidal: Tidal, track: MixTrack) -> Optional[Track]:
     try:
-        return tidal.find_equivalent_track(LastFmTrack(title=track.title, artists={track.artist}))
+        found = tidal.find_equivalent_track(
+            LastFmTrack(title=track.title, artists={track.artist}), match_version=True
+        )
     except ObjectNotFound:
         return None
     except HTTPError as error:
         if error.response is None or error.response.status_code != 404:
             raise
         return None
+    return found if found and is_same_recording(track.title, found.name or '') else None
 
 
 def find_tracks_on_tidal(tidal: Tidal, candidates: List[MixTrack], playlist_size: int) -> List[str]:

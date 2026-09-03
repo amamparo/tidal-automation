@@ -8,6 +8,7 @@ from src.update_dub_techno import (
     DISCOURAGED_STYLE_PENALTY,
     HOTTEST_MIX_WEIGHT,
     RECENCY_HALF_LIFE_DAYS,
+    is_same_recording,
     mix_weight,
     weigh_candidates,
     weighted_draw
@@ -131,3 +132,16 @@ class DubTechnoSelection(TestCase):
         ], TODAY)
 
         self.assertGreater(weights[rhythmic], weights[ambient])
+
+    def test_rejects_a_title_extended_with_bare_words(self) -> None:
+        self.assertFalse(is_same_recording('Home', 'Home on The Range'))
+        self.assertFalse(is_same_recording('Free', 'Free From Desire'))
+        self.assertFalse(is_same_recording('Drugs', '(Never Been To) Drugs With Friends'))
+
+    def test_keeps_a_qualifier_tidal_adds_or_drops(self) -> None:
+        self.assertTrue(is_same_recording('Mr. White', 'Mr. White [Mix Cut]'))
+        self.assertTrue(is_same_recording('KMB2013', 'KMB2013 (10 Inch Version)'))
+        self.assertTrue(is_same_recording('Ikigai (Orbe Remix)', 'Ikigai'))
+
+    def test_keeps_a_numbered_ep_track(self) -> None:
+        self.assertTrue(is_same_recording("You Don't Fool Me", "You Don't Fool Me 1"))
