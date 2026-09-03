@@ -35,18 +35,35 @@ stated as measured was re-verified against the live API, the live Tidal account,
 
 Four MixesDB requests, then a lazy Tidal resolve loop, then one write.
 
-### 1. Search — `MixesDb.__search_titles`
+### 1. Search — `MixesDb.__search_titles` / `__search_style`
+
+**Two searches, one per style in `SEARCHED_STYLES = ('Dub Techno', 'Minimal')`**, merged client-side:
 
 ```
 GET https://www.mixesdb.com/w/api.php
   ?action=query&list=search&format=json&formatversion=2
   &srlimit=max&srsort=hotness_desc
-  &srsearch=style:"Dub Techno" -tracklist:none hasplayer date:2026,2025-10,2025-11,2025-12
+  &srsearch=style:"<style>" -tracklist:none hasplayer date:2026,2025-10,2025-11,2025-12
 ```
+
+**MixesDB has no union syntax — this is why there are two calls.** Verified live: `OR` returns 4 hits,
+`(... OR ...)` returns 1, and both `style:"Dub Techno"|"Minimal"` and `style:"Dub Techno","Minimal"` return
+**15**, which is the *intersection* — cross-checked against the explicit AND form `style:"A" style:"B"`, also
+15. MixesDB has overridden CirrusSearch's usual `incategory:A|B` OR. So the union is ours to build.
+
+Live today: Dub Techno **122**, Minimal **132**, shared 15, **union 239**.
+
+**Merging two hotness rankings.** Each search is independently `hotness_desc`, and a mix's position means
+different things in lists of different lengths, so rank is normalised before merging: a title's sort key is the
+**best (lowest) `position / len(titles)`** across the searches it appears in. `MAX_MIXES = 200` then keeps the
+hottest 200 of the union, bounding traffic at 2 searches + 4 wikitext batches = 6 requests.
+
+Each search is floored at `MINIMUM_SEARCH_HITS` **individually**, not on the union — a renamed `Minimal`
+keyword must fail loudly rather than hide behind a healthy Dub Techno count.
 
 Verified live today: `error: None`, `warnings: None`, `totalhits: 122`, 122 results, no `continue`. `srlimit=max`
 resolves to 500 (`highmax` 5000 requires `apihighlimits`, which anonymous clients do not have). The first
-`MAX_MIXES = 200` titles are kept, which bounds MixesDB traffic to ≤5 requests per run forever and is why no
+`MAX_MIXES = 200` titles are kept, which bounds MixesDB traffic to ≤6 requests per run forever and is why no
 `sroffset` continuation loop is needed.
 
 `profile=mixes` from the UI URL is omitted — verified a no-op *for this query* (identical hit count with and
@@ -127,7 +144,10 @@ rejection rule.
    2719 lines, and a looser looped pattern would eat `[Moosdohmen]` and destroy step 5's recovery.
 4. `TRAILING_LABEL.sub('', body)`. **Once, not looped** — a second pass also fires on **0** lines. This must
    precede the split: 19 labels contain a dash (`[mould.audio - mldcs025]`).
-5. Reject on `FILLER.match(body)` (527 lines) or `' - ' not in body` (6 lines). Then `body.split(' - ', 1)` —
+5. Reject on `FILLER.match(body)` (527 lines) or `' - ' not in body` (6 lines). `FILLER` is strictly
+   redundant — no alternative in it can contain a space, so every line it matches would be dropped by the
+   dash test anyway — but it is kept because it states the intent that `Intro`/`?`/`...` are not tracks.
+   Then `body.split(' - ', 1)` —
    the **first** separator. Apply `BRACKETED_ARTIST` to the **artist only**; it recovers 15 tracks written as
    `[Moosdohmen] - Paddy Dub`. Collapse whitespace in both fields.
 6. Reject if the artist is empty or starts with `?` (3 lines), or the title is empty or starts with `?` (11).
@@ -136,8 +156,11 @@ rejection rule.
    live probes produced `Retouched - F` → *The Betrothal Feast* and `Donato Dozzy - B` → *Back*, and in the
    first case the false positive then blocked the correct track as a duplicate.
 
-Emit `MixTrack(mix_title, artist, title)` with the **artist string verbatim** and the **title including any
-remix parenthetical**.
+Emit `MixTrack(artist, title)` with the **artist string verbatim** and the **title including any remix
+parenthetical**. `MixTrack` carries **no mix title** — identity is the normalised `(artist, title)` pair, which
+is exactly what lets `weigh_candidates` sum one track's weight across every mix that played it. The mix title
+lives on `Tracklist`, so the per-track progress line cannot name its source mix; `len(tracklists)` in the
+summary line is the markup-drift canary instead.
 
 - **Do not split multi-artist strings.** `Tidal.__artist_name_variants` already expands `,`, `&`, ` and `,
   `vs.` and `feat.`, and `Tidal.__search_query` concatenates *every* variant into one query, so adding a
@@ -152,19 +175,54 @@ Because the loop stops at 100 matches it consumes only ~6% of the pool, so **the
 Every candidate gets a lottery weight from the mix it came from, and the whole pool is drawn without
 replacement into one weighted random permutation.
 
-**Weight per mix** — hotness leads because that is what the user's URL asked for; recency is a secondary tilt:
+**Weight per mix** — hotness leads because that is what the user's URL asked for; recency is a secondary tilt;
+style is a third factor that pushes the playlist toward rhythmic material:
 
 ```python
-def mix_weight(rank: int, mix_count: int, age_days: int) -> float:
+def style_multiplier(categories: Set[str]) -> float:
+    premium = BOTH_PREFERRED_STYLES_PREMIUM if PREFERRED_STYLES <= categories else 1.0
+    return premium * DISCOURAGED_STYLE_PENALTY ** len(DISCOURAGED_STYLES & categories)
+
+
+def mix_weight(rank: int, mix_count: int, age_days: int, categories: Set[str]) -> float:
     hotness = HOTTEST_MIX_WEIGHT ** (1 - rank / mix_count)
-    recency = RECENCY_HALF_LIFE_DAYS / (RECENCY_HALF_LIFE_DAYS + age_days)
-    return hotness * recency
+    recency = RECENCY_HALF_LIFE_DAYS / (RECENCY_HALF_LIFE_DAYS + max(age_days, 0))
+    return hotness * recency * style_multiplier(categories)
 ```
+
+**Style tags cost no extra requests** — they are the `[[Category:...]]` lines already in the wikitext fetched
+for the tracklists, read by `categories_of`. That returns *all* categories (year, artist, show, style); only
+the four names in `PREFERRED_STYLES` and `DISCOURAGED_STYLES` are ever tested, so no style-vs-other-category
+classification is needed.
+
+**A penalty, not a blacklist**, for `Ambient` / `IDM`: `DISCOURAGED_STYLE_PENALTY = 0.1` per matching tag, so
+one tag is a 10x cut and both is a **100x** cut. Harshest-for-both falls out of the exponent with no special
+case. Measured over the 239-mix union, tracks per 100 originating in an Ambient/IDM-tagged mix:
+
+| | Ambient/IDM tracks per 100 | Both-preferred tracks per 100 |
+|---|---|---|
+| no style weighting | **18.25** (worst 28) | 4.66 |
+| **premium 2.0, penalty 0.1 (chosen)** | **2.18** (worst 8) | **10.04** |
+| blacklist | 0 | 10.18 |
+
+The tag describes the **mix, not the track**: 29 of 239 mixes carry `Ambient`, and a dub techno set with one
+beatless interlude is tagged exactly like a genuinely ambient one. Blacklisting discards 12% of the corpus
+wholesale on a noisy mix-level signal; the penalty removes ~88% of the effect and degrades gracefully if the
+corpus shifts. 15 of 239 mixes carry both preferred styles, and **no mix today carries both a premium and a
+penalty** — the formula composes correctly if one ever does (2.0 x 0.1 = 0.2). Switching to a blacklist is a
+one-line change and the pool has room for it (2713 candidates against ~130 needed).
 
 `rank` is the mix's position in the `hotness_desc` search result — the API exposes hotness only as an
 ordering, never a score, so rank is all there is. `HOTTEST_MIX_WEIGHT = 5.0` makes the hottest mix's tracks 5×
 as likely as the coldest; `RECENCY_HALF_LIFE_DAYS = 180.0` halves a mix's weight every six months. `age_days`
 comes from the date in the mix title — **all 122 titles parse**, spanning 2025-10-03 to 2026-08-28.
+
+**`age_days` is clamped at zero**, and it has to be. A bare-year or fuzzy-month title (`2026 - …`,
+`2026-0X - …` — the pages PLAN §2's bare year token exists to reach) defaults to mid-year, which is in the
+*future* for the first half of that year. Unclamped, `RECENCY_HALF_LIFE_DAYS + age_days` goes negative in
+early January (inverting the lottery so that mix leads every draw), hits **exactly zero on 16 January**
+(`ZeroDivisionError` out of `weigh_candidates`, before any guard), and stays a 1.3–11× unearned multiplier
+until mid-year. `max(age_days, 0)` makes an undated mix weigh exactly as much as a same-day one, never more.
 
 **Weights sum across mixes.** A track played in three of the 122 mixes collects three contributions, so
 cross-mix repetition — a genuine scene-favourite signal — falls out for free instead of needing its own tier.
@@ -230,8 +288,12 @@ CONSECUTIVE_MISS_LIMIT = 40
   the odds of 40 real consecutive misses are astronomically small, so 40 in a row means Tidal is broken.
 - **Budget *and* deadline.** `LOOKUP_BUDGET` bounds a count (400 × 0.87 s ≈ 348 s); `MATCH_DEADLINE_SECONDS`
   checked with `monotonic()` at the top of each iteration bounds wall clock. Both are needed.
-- tqdm progress in the repo's existing style — `progress.write` with `\033[92m✓` / `\033[91m✗` — including the
-  source mix title so a bad run is diagnosable from CloudWatch alone.
+- tqdm progress in the repo's existing style — `progress.write` with `\033[92m✓` / `\033[91m✗`. A ✗ means the
+  lookup genuinely found nothing; a track already in `track_ids` is skipped silently and does **not** count
+  toward `CONSECUTIVE_MISS_LIMIT`, because a duplicate proves Tidal is answering.
+- `find_track_id` swallows `ObjectNotFound` and 404-flavoured `HTTPError` and re-raises everything else.
+  Without it a single dead album id anywhere in the walk aborts the run before the write —
+  `Tidal.__get_album` is called for every title-and-artist-matching search result.
 
 **Measured live today** against the real candidate ordering, using the repo's own `Tidal`: **46 hits in 60
 lookups = 76.7%, 0.87 s per lookup**, projecting **~130 lookups and ~113 s** to fill 100. Sample hits:
@@ -266,7 +328,7 @@ Three floors, each catching a different upstream failure:
 |---|---|
 | `totalhits < 40` (in `MixesDb`) | Renamed or typo'd keyword, a stale date window, a MixesDB reindex. Silent-zero is this API's *default* failure mode. |
 | `len(weights) < 400` | Tracklist markup drift, all wikitext batches failing. Today's value is 2085. |
-| `len(track_ids) < playlist_size // 2` | Tidal degradation, a deadline hit, an auth failure the breaker missed. **Also covers the empty-list case** that would otherwise crash inside `add()` after `clear()` has already wiped the playlist. Relative to the configured size, so lowering `DUB_TECHNO_SIZE` does not make the guard unconditional. |
+| `not track_ids or len(track_ids) < playlist_size // 2` | Tidal degradation, a deadline hit, an auth failure the breaker missed. The explicit `not track_ids` is load-bearing: at `DUB_TECHNO_SIZE` of 0 or 1 the `// 2` floor is `< 0` and never fires. **Covers the empty-list case** that would otherwise crash inside `add()` after `clear()` has already wiped the playlist. Relative to the configured size, so lowering `DUB_TECHNO_SIZE` does not make the guard unconditional. |
 
 The two `print` lines are prefixed `dub-techno mixesdb:` / `dub-techno tidal:` for CloudWatch Logs Insights.
 `len(tracklists)` is the markup-drift canary: it is 117 of 122 today, and a sustained drop means the parser
@@ -355,12 +417,13 @@ change what the playlist *is* belong in a commit, not in console-editable functi
 
 `TIDAL_REFRESH_TOKEN` is already supplied by the shared Secrets Manager secret; `grant_read` is per-function.
 
-Module constants: `API_URL`, `USER_AGENT`, `REQUEST_TIMEOUT`, `CRAWL_DELAY_SECONDS`, `STYLE`,
+Module constants: `API_URL`, `USER_AGENT`, `REQUEST_TIMEOUT`, `CRAWL_DELAY_SECONDS`, `SEARCHED_STYLES`,
 `TITLES_PER_REQUEST`, `MAX_MIXES`, `MINIMUM_SEARCH_HITS`, `MINIMUM_TITLE_LENGTH` in `src/mixes_db.py`;
-`HOTTEST_MIX_WEIGHT`, `RECENCY_HALF_LIFE_DAYS`, `LOOKUP_BUDGET`,
+`HOTTEST_MIX_WEIGHT`, `RECENCY_HALF_LIFE_DAYS`, `PREFERRED_STYLES`, `DISCOURAGED_STYLES`,
+`BOTH_PREFERRED_STYLES_PREMIUM`, `DISCOURAGED_STYLE_PENALTY`, `LOOKUP_BUDGET`,
 `MATCH_DEADLINE_SECONDS`, `MINIMUM_CANDIDATES`, `CONSECUTIVE_MISS_LIMIT` in `src/update_dub_techno.py`.
 
-The style string contains a `"` and would be awkward and error-prone in a CDK environment block; changing it
+The style strings contain a `"` and would be awkward and error-prone in a CDK environment block; changing them
 changes what the playlist is.
 
 ---
@@ -445,7 +508,7 @@ Append inside `TidalAutomation.__init__`, after the existing `Rule`. No new impo
         Rule(
             self,
             'UpdateDubTechnoSchedule',
-            schedule=Schedule.cron(hour='10', minute='30'),
+            schedule=Schedule.cron(hour='10', minute='15'),
             targets=[LambdaFunction(update_dub_techno)]
         )
 ```
@@ -453,9 +516,14 @@ Append inside `TidalAutomation.__init__`, after the existing `Rule`. No new impo
 - **The module name and the `cmd` string must agree.** Verified: `cdk synth` does **not** validate the handler
   path — a bogus one synths cleanly and dies at cold start with `Runtime.ImportModuleError`.
   `src/update_dub_techno.py` ↔ `src.update_dub_techno.lambda_handler`.
-- **10:30 UTC daily.** The daily blend fires at 09:30 with a 15-minute timeout, so its worst case ends 09:45.
-  `Tidal` is a `@singleton` whose 2 req/s limiter is per-process; overlapping runs would drive 4 req/s at one
-  account and trigger the backoff.
+- **Every schedule is staggered at 15-minute intervals from 10:00 UTC.** The daily blend moves to 10:00 and
+  Dub Techno takes 10:15; a third lambda would take 10:30. 10:00 UTC is the hour that makes **04:00 the
+  earliest a job ever starts**: Chicago is UTC-6 in winter (04:00 CST) and UTC-5 in summer (05:00 CDT), so the
+  jobs run an hour later for the half of the year DST is in effect. Verified with `zoneinfo`. Note the
+  trade-off the 15-minute spacing accepts: both functions have a 15-minute timeout, so a worst-case daily
+  blend run ends exactly as Dub Techno starts. `Tidal`'s 2 req/s limiter is per-process, so a genuine overlap
+  would briefly drive 4 req/s at one account and trigger the backoff. Typical runs are 2-4 minutes, so this
+  is a tail case, not the norm.
 - **`reserved_concurrent_executions=1`, `retry_attempts=0`.** EventBridge is at-least-once and async Lambda
   invocations retry **twice by default** — without these, a guard that raises fires three full runs, making 12
   MixesDB requests on exactly the day MixesDB is misbehaving. Verified both synth correctly

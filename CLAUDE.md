@@ -4,7 +4,23 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Project Overview
 
-This is a Tidal music automation service that synchronizes Last.fm recommendations with Tidal playlists. The application is deployed as an AWS Lambda function using AWS CDK and runs on a daily schedule to update a "Daily Blend" playlist.
+This is a Tidal music automation service that rebuilds Tidal playlists on a daily schedule. It deploys as AWS Lambda functions via AWS CDK:
+
+* `src/update_daily_blend.py` — a "Daily Blend" from Tidal mixes plus last.fm recommendations.
+* `src/update_dub_techno.py` — a "Dub Techno" playlist from MixesDB mix tracklists.
+
+Both run on staggered 15-minute intervals from 10:00 UTC, which is 04:00 Chicago in winter and
+05:00 in summer — the latest UTC hour that never starts a job before 4AM local.
+
+## Data sources
+
+MixesDB's `Special:Search` page renders its results **client-side**, so it cannot be scraped. Use the
+MediaWiki JSON API at `https://www.mixesdb.com/w/api.php`, which honours MixesDB's custom search keywords
+(`style:`, `date:`, `hasplayer`, `-tracklist:none`). `srsort=hotness_desc` works; bare `hotness` does not.
+There is **no OR syntax** — `|`, `,` and `OR` all behave as AND — so a multi-style search means one
+request per style, merged client-side by normalised hotness rank.
+`titles=` accepts 50 per request for anonymous clients. Errors arrive as HTTP 200 with an `error` object,
+so check the body, not just the status. `robots.txt` sets `Crawl-delay: 4`. See `PLAN.md` for the details.
 
 ## Development Commands
 

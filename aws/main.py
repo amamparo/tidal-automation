@@ -43,6 +43,34 @@ class TidalAutomation(Stack):
             targets=[LambdaFunction(update_daily_blend)]
         )
 
+        update_dub_techno = DockerImageFunction(
+            self,
+            'UpdateDubTechno',
+            memory_size=256,
+            code=DockerImageCode.from_image_asset(
+                directory=getcwd(),
+                platform=Platform.LINUX_ARM64,
+                cmd=['src.update_dub_techno.lambda_handler']
+            ),
+            architecture=Architecture.ARM_64,
+            environment={
+                'SECRET_ARN': secret.secret_arn,
+                'DUB_TECHNO_PLAYLIST_ID': '70bf74d2-2b2f-4470-8d0d-582a18fdd2bf',
+                'DUB_TECHNO_SIZE': '100',
+            },
+            reserved_concurrent_executions=1,
+            retry_attempts=0,
+            timeout=Duration.minutes(15)
+        )
+        secret.grant_read(update_dub_techno)
+
+        Rule(
+            self,
+            'UpdateDubTechnoSchedule',
+            schedule=Schedule.cron(hour='10', minute='15'),
+            targets=[LambdaFunction(update_dub_techno)]
+        )
+
 
 if __name__ == '__main__':
     app = App()

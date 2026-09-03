@@ -1,0 +1,67 @@
+[[File:2025-10-16 - Hitam - Monument Podcast 490.jpg|right|360px]]
+
+== File details ==
+
+{|{{NormalTableFormat}}
+! dur
+! MB
+! kbps
+|-
+| 2:24:17
+| 
+| 
+|}
+
+{{Player|mode=mirrors|video=audio
+ |1=https://podcasts.apple.com/gb/podcast/mnmt-490-hitam/id1147084286?i=1000732115294
+ |2=https://youtu.be/CFZ0TtEbofU
+ |3=https://soundcloud.com/monument-podcast/mnmt-490-hitam
+}}
+
+== Tracklist ==
+
+<list>
+[000] ?
+...
+[005] Marco Shuttle - AfA [Incienso]
+[008] Rrose - The Illuminating Glass [Eaux]
+[012] Marco Shuttle - Tombak Healer [Incienso]
+[016] ?
+...
+[019] Joaquin Cornejo - Buma II [YUKU]
+[024] Neel & Natural/Electronic.System. - Mira [Tikita]
+[027] ?
+...
+[031] Natural/Electronic.System. - Terrae Nullius [Tikita]
+[033] Korridor - Binocular Observer (Ness Remix) [Hypnus]
+[036] Amandra & Karim - Sqala 4.2 (Natural/Electronic.System. Remix) [Tikita]
+...
+[042] Paleman - Exalted [30D Eyes Have It]
+[045] ?
+...
+[050] Absis - In The Way (Bas Dobbelaer & Vand Remix) [Oslated]
+...
+[064] Rambadu - Indra [Hypnus]
+[069] ?
+...
+[080] Toki Fuko - Jātaka [Spclnch]
+[085] ?
+...
+[104] Vādin - Juegro [Offen]
+[108] ?
+...
+[119] Vanta - Blackout [IO-Records]
+[122] Ntogn - Diablero [D.M.T.]
+[126] ?
+...
+[137] Haumea - Inverted Spear [Rhiza Semar]
+...
+[143] Phallus Dei - Stalker [Dark Vinyl]
+</list>
+
+[[Category:2025]]
+[[Category:Hitam]]
+[[Category:Monument]]
+[[Category:Minimal]]
+[[Category:Dub Techno]]
+[[Category:Tracklist: incomplete]]
