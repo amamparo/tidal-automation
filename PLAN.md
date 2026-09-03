@@ -181,6 +181,15 @@ disagrees. Rules, in order:
 - **A remixer credited as an artist counts as the remix.** Tidal often lists
   `Dreaming Trees (Forest Drive West Remix)` as *Dreaming Trees* by "Polygonia, Forest Drive West"; rejecting
   that would throw away a correct match.
+- **A "live" marker is not a version.** Every track in this corpus was played in a DJ set, so "live" carries
+  no signal about whether a track belongs — `(Live)`, `(Live Mix)`, `(Live At Draaimolen 2023)` are all
+  neutral. The marker must be *purely* live/venue/date to qualify: `Federsen Live Dub` and
+  `Seconds To Forever Live Mix` stay distinct versions, because the name is the meaningful part.
+  `LIVE_PARENTHETICAL` also joins `TITLE_NOISE_SUFFIXES` so the marker is stripped from the **search query** —
+  without that, `Azu Tiwaline & Cinna Peyghamy - Canopée Imaginaire (Live At Draaimolen 2023)` returns
+  **0 Tidal results**; with it the exact recording is the first hit, matched through Tidal's `version` field.
+  This one part is not opt-in — it cleans the query for every caller — but stripping a venue-and-date clause
+  can only widen a search, and the 23 last.fm tests show zero delta.
 
 **It is opt-in and off by default**, so `update_daily_blend` is untouched. Verified: the 23 last.fm tests
 show the same 2 pre-existing failures before and after, delta zero.
@@ -269,7 +278,7 @@ likely", and it is the strongest on target. Measured alternatives, same weights,
 If a run ever bunches harder than taste allows, dividing by `sqrt(len(tracklist.tracks))` is a one-token change
 that halves the concentration for almost no loss of targeting.
 
-### 6. Resolution — `find_track_id` / `find_tracks_on_tidal`
+### 6. Resolution — `find_track` / `find_tracks_on_tidal`
 
 Walk the candidates; skip on either cap **before** spending a lookup; resolve; dedupe on `str(track.id)`.
 
@@ -305,7 +314,7 @@ CONSECUTIVE_MISS_LIMIT = 40
 - tqdm progress in the repo's existing style — `progress.write` with `\033[92m✓` / `\033[91m✗`. A ✗ means the
   lookup genuinely found nothing; a track already in `track_ids` is skipped silently and does **not** count
   toward `CONSECUTIVE_MISS_LIMIT`, because a duplicate proves Tidal is answering.
-- `find_track_id` swallows `ObjectNotFound` and 404-flavoured `HTTPError` and re-raises everything else.
+- `find_track` swallows `ObjectNotFound` and 404-flavoured `HTTPError` and re-raises everything else.
   Without it a single dead album id anywhere in the walk aborts the run before the write —
   `Tidal.__get_album` is called for every title-and-artist-matching search result.
 
@@ -355,7 +364,7 @@ needs attention.
 | File | Change |
 |---|---|
 | `src/mixes_db.py` | **New, ~150 lines.** Constants, `MixTrack` (with `key()` + `__hash__`/`__eq__` on the normalised pair, mirroring `LastFmTrack`'s idiom) and `Tracklist` dataclasses, `date_window`, `search_query`, `searchable`, `recorded_on`, `tracklist_lines`, `parse_line`, `parse_tracklist`, and `@singleton class MixesDb` with `get_tracklists(today: date) -> List[Tracklist]`. Imports `requests` with the repo's `# type: ignore[import-untyped]` convention. |
-| `src/update_dub_techno.py` | **New, ~110 lines.** Module-top `# pylint: disable=duplicate-code`, constants, `mix_weight`, `weigh_candidates`, `weighted_draw`, `find_track_id`, `find_tracks_on_tidal`, `@inject main`, `lambda_handler`, `__main__` timing block — same shape as `update_daily_blend.py`. |
+| `src/update_dub_techno.py` | **New, ~110 lines.** Module-top `# pylint: disable=duplicate-code`, constants, `mix_weight`, `weigh_candidates`, `weighted_draw`, `find_track`, `find_tracks_on_tidal`, `@inject main`, `lambda_handler`, `__main__` timing block — same shape as `update_daily_blend.py`. |
 | `tests/test_mixes_db.py` | **New.** Pure, offline parser and query tests. |
 | `tests/fixtures/mixes_db/*.txt` | **New.** Three real mix pages: one `#`-list, one `<list>`, one that uses both. No `__init__.py`. |
 | `aws/main.py` | Second `DockerImageFunction` + `secret.grant_read` + `Rule`. No new imports. |
@@ -584,7 +593,7 @@ the full 15 minutes. Benign — no write happens — but silent, visible only as
 **A bodied 429 or 5xx escapes `Tidal.__call_api` as a raw `requests.HTTPError`.** Verified:
 `tidalapi.exceptions.http_error_to_tidal_error` converts 404/429 **only when `response.content` is empty**;
 otherwise it returns `None` and `request.py` re-raises the bare `HTTPError`, which `__call_api` does not catch.
-`find_track_id` deliberately swallows only 404-flavoured `HTTPError` and re-raises the rest, so this kills the
+`find_track` deliberately swallows only 404-flavoured `HTTPError` and re-raises the rest, so this kills the
 run *before* the write — the safe direction, but it is a real limitation of the shared client.
 
 **No alarm exists.** A raised guard increments the Lambda `Errors` metric, but nothing in this repo watches it,

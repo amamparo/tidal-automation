@@ -56,11 +56,10 @@ def is_same_recording(mix_title: str, found_name: str) -> bool:
     return searchable(found_name) in searched or searchable(TITLE_QUALIFIER.sub('', found_name)) in searched
 
 
-def find_track_id(tidal: Tidal, track: MixTrack) -> Optional[Track]:
+def find_track(tidal: Tidal, track: MixTrack) -> Optional[Track]:
+    searched = LastFmTrack(title=track.title, artists={track.artist})
     try:
-        found = tidal.find_equivalent_track(
-            LastFmTrack(title=track.title, artists={track.artist}), match_version=True
-        )
+        found = tidal.find_equivalent_track(searched, match_version=True)
     except ObjectNotFound:
         return None
     except HTTPError as error:
@@ -80,7 +79,7 @@ def find_tracks_on_tidal(tidal: Tidal, candidates: List[MixTrack], playlist_size
             if len(track_ids) >= playlist_size or lookups >= LOOKUP_BUDGET or monotonic() > deadline:
                 break
             lookups += 1
-            found = find_track_id(tidal, candidate)
+            found = find_track(tidal, candidate)
             if not found:
                 consecutive_misses += 1
                 if consecutive_misses >= CONSECUTIVE_MISS_LIMIT:

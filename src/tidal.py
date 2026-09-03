@@ -42,6 +42,14 @@ NEUTRAL_VERSION_MARKER = re.compile(
     r'feat\.?|ft\.?|featuring|with|w/)\b',
     re.IGNORECASE,
 )
+LIVE_PARENTHETICAL = re.compile(
+    r'\s*[\(\[]live\b(?:\s*(?:at|from|in|@)\b[^)\]]*|\s*(?:pa|set|mix|dub|version|edit|take|recording)\b\s*)?[\)\]]',
+    re.IGNORECASE,
+)
+LIVE_MARKER = re.compile(
+    r'^live\b\s*(?:(?:at|from|in|@)\b.*|(?:pa|set|mix|dub|version|edit|take|recording)\b\s*)?$',
+    re.IGNORECASE,
+)
 VERSION_NOUN = re.compile(
     r'\b(?:remix|rmx|edit|dub|mix|version|rework|refix|reshape|retouch|reassembly|reprise|'
     r'revision|interpretation|flip|treatment|remake|vip|bootleg|instrumental|acapella|live|'
@@ -49,7 +57,9 @@ VERSION_NOUN = re.compile(
     re.IGNORECASE,
 )
 DASH_REMASTER_SUFFIX = re.compile(r'\s*-\s*\d{4}\s+Remaster(?:ed)?', re.IGNORECASE)
-TITLE_NOISE_SUFFIXES = (COLLABORATION_PARENTHETICAL, TRACK_VERSION_SUFFIX, GENERIC_REMIX_SUFFIX, DASH_REMASTER_SUFFIX)
+TITLE_NOISE_SUFFIXES = (COLLABORATION_PARENTHETICAL, TRACK_VERSION_SUFFIX, GENERIC_REMIX_SUFFIX,
+                        DASH_REMASTER_SUFFIX, LIVE_PARENTHETICAL)
+MINIMUM_REMIXER_NAME_LENGTH = 3
 
 
 PLAYLIST_PAGE_SIZE = 100
@@ -166,7 +176,7 @@ class Tidal:
         return match
 
     def __best_match(self, searched: LastFmTrack, results: List[Track],
-                     versioned_title: Optional[str] = None) -> Optional[Track]:
+                     versioned_title: Optional[str]) -> Optional[Track]:
         various_artists_versions: List[Track] = []
         alternate_versions: List[Track] = []
 
@@ -290,7 +300,7 @@ class Tidal:
     def __version_markers(title: str) -> Set[str]:
         markers = (marker.strip() for marker in VERSION_MARKER.findall(title))
         return {Tidal.__normalize_title(marker) for marker in markers
-                if marker and not NEUTRAL_VERSION_MARKER.match(marker)}
+                if marker and not NEUTRAL_VERSION_MARKER.match(marker) and not LIVE_MARKER.match(marker)}
 
     @staticmethod
     def __versions_match(searched_title: str, result: Track) -> bool:
@@ -304,7 +314,7 @@ class Tidal:
             return False
         credited = {Tidal.__normalize_artist_name(artist.name) for artist in (result.artists or [])}
         remixers = {Tidal.__normalize_title(VERSION_NOUN.sub(' ', marker)) for marker in searched - candidate}
-        remixers = {remixer for remixer in remixers if len(remixer) > 2}
+        remixers = {remixer for remixer in remixers if len(remixer) >= MINIMUM_REMIXER_NAME_LENGTH}
         return bool(remixers) and all(
             any(remixer in artist for artist in credited) for remixer in remixers
         )

@@ -23,6 +23,11 @@ def versions_match(searched_title: str, candidate: Track) -> bool:
     return bool(matcher(searched_title, candidate))
 
 
+def clean_title(title: str) -> str:
+    cleaner = getattr(cast(Any, Tidal), '_Tidal__clean_title')
+    return str(cleaner(title))
+
+
 class TrackVersions(TestCase):
     def test_an_exact_version_matches(self) -> None:
         self.assertTrue(versions_match('Attribute 39 (Donato Dozzy Remix)',
@@ -63,3 +68,23 @@ class TrackVersions(TestCase):
 
     def test_an_unversioned_title_matches_an_unversioned_track(self) -> None:
         self.assertTrue(versions_match('Some Song', track('Some Song', ['Someone'])))
+
+    def test_a_live_marker_is_not_a_version(self) -> None:
+        self.assertTrue(versions_match('Canopee Imaginaire (Live At Draaimolen 2023)',
+                                       track('Canopee Imaginaire', ['Azu Tiwaline'],
+                                             version='Live at Draaimolen 2023')))
+        self.assertTrue(versions_match('Seconds To Forever (Live Mix)',
+                                       track('Seconds To Forever', ['cv313'])))
+        self.assertTrue(versions_match('Some Track (Live)', track('Some Track', ['Someone'])))
+
+    def test_a_credited_remixer_still_counts_when_the_marker_says_live(self) -> None:
+        self.assertFalse(versions_match('Very Being (Federsen Live Dub)', track('Very Being', ['Mike Schommer'])))
+
+
+class LiveMarkersInTheSearchQuery(TestCase):
+    def test_a_live_marker_is_stripped_before_searching(self) -> None:
+        self.assertEqual('Canopee Imaginaire', clean_title('Canopee Imaginaire (Live At Draaimolen 2023)'))
+        self.assertEqual('Seconds To Forever', clean_title('Seconds To Forever (Live Mix)'))
+
+    def test_a_named_remix_survives_the_search_query(self) -> None:
+        self.assertEqual('Ikigai (Orbe Remix)', clean_title('Ikigai (Orbe Remix)'))
