@@ -2,5 +2,6 @@
 .idea
 cdk.out
 .env
-.claude
+.claude/*
+!.claude/agents/
 .venv
