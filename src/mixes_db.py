@@ -12,7 +12,7 @@ API_URL = 'https://www.mixesdb.com/w/api.php'
 USER_AGENT = 'tidal-automation/1.0 (+https://github.com/amamparo/tidal-automation)'
 REQUEST_TIMEOUT = (5.0, 30.0)
 CRAWL_DELAY_SECONDS = 4
-SEARCHED_STYLES = ('Dub Techno', 'Minimal', 'Techno')
+STYLE = 'Dub Techno'
 TITLES_PER_REQUEST = 50
 MINIMUM_SEARCH_HITS = 40
 MINIMUM_TITLE_LENGTH = 3
@@ -62,8 +62,8 @@ def date_window(today: date) -> str:
     return ','.join([str(today.year), *trailing_months])
 
 
-def search_query(today: date, style: str) -> str:
-    return f'style:"{style}" -tracklist:none hasplayer date:{date_window(today)}'
+def search_query(today: date) -> str:
+    return f'style:"{STYLE}" -tracklist:none hasplayer date:{date_window(today)}'
 
 
 def categories_of(wikitext: str) -> Set[str]:
@@ -146,15 +146,7 @@ class MixesDb:
         return tracklists
 
     def __search_titles(self, today: date) -> List[str]:
-        ranking: Dict[str, Tuple[int, int]] = {}
-        for priority, style in enumerate(SEARCHED_STYLES):
-            for position, title in enumerate(self.__search_style(today, style)):
-                rank = (position, priority)
-                ranking[title] = min(ranking.get(title, rank), rank)
-        return sorted(ranking, key=lambda title: ranking[title])
-
-    def __search_style(self, today: date, style: str) -> List[str]:
-        query = search_query(today, style)
+        query = search_query(today)
         response = self.__get({
             'action': 'query', 'list': 'search', 'srlimit': 'max', 'srsort': 'hotness_desc',
             'srsearch': query,

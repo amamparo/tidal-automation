@@ -17,9 +17,9 @@ Both run on staggered 15-minute intervals from 10:00 UTC, which is 04:00 Chicago
 MixesDB's `Special:Search` page renders its results **client-side**, so it cannot be scraped. Use the
 MediaWiki JSON API at `https://www.mixesdb.com/w/api.php`, which honours MixesDB's custom search keywords
 (`style:`, `date:`, `hasplayer`, `-tracklist:none`). `srsort=hotness_desc` works; bare `hotness` does not.
-There is **no OR syntax** — `|`, `,` and `OR` all behave as AND — so a multi-style search means one request
-per style, merged client-side by **raw** position (normalising by list length lets a huge corpus like Techno's
-2785 hits outrank a small one like Dub Techno's 122).
+There is **no OR syntax** — `|`, `,` and `OR` all behave as AND — so a multi-style search would mean one
+request per style merged client-side. That was tried and reverted; one style is plenty for a 100-track
+playlist.
 `titles=` accepts 50 per request for anonymous clients. Errors arrive as HTTP 200 with an `error` object,
 so check the body, not just the status. `robots.txt` sets `Crawl-delay: 4`. See `PLAN.md` for the details.
 

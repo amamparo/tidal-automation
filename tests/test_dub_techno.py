@@ -1,24 +1,20 @@
 from collections import Counter
 from datetime import date, timedelta
-from typing import Dict, Optional, Set
+from typing import Optional, Set
 from unittest import TestCase
 
 from src.mixes_db import MixTrack, Tracklist
 from src.update_dub_techno import (
     DISCOURAGED_STYLE_PENALTY,
-    STYLE_PRIORITIES,
-    style_premiums,
     HOTTEST_MIX_WEIGHT,
     RECENCY_HALF_LIFE_DAYS,
     mix_weight,
-    style_multiplier,
     weigh_candidates,
     weighted_draw
 )
 
 TODAY = date(2026, 9, 3)
 NO_STYLES: Set[str] = set()
-NO_PREMIUMS: Dict[str, float] = {}
 HALF_LIFE_DAYS = int(RECENCY_HALF_LIFE_DAYS)
 
 SHARED = MixTrack(artist='Yagya', title='Sleepygirl 1')
@@ -35,17 +31,8 @@ LEADER_SEEDS = 300
 MARGINAL_SEEDS = 10000
 
 
-STYLED_CORPUS = [
-    Tracklist('a', date(2026, 8, 1), [MixTrack('A', 'One')],
-              {'Dub Techno', 'Minimal'}),
-    Tracklist('b', date(2026, 8, 1), [MixTrack('B', 'Two')], {'Dub Techno', 'Techno'}),
-    Tracklist('c', date(2026, 8, 1), [MixTrack('C', 'Three')], {'Minimal', 'Techno'}),
-    Tracklist('d', date(2026, 8, 1), [MixTrack('D', 'Four')], {'Techno'})
-]
-
-
 def unstyled_weight(rank: int, mix_count: int, age_days: int) -> float:
-    return mix_weight(rank, mix_count, age_days, NO_STYLES, NO_PREMIUMS)
+    return mix_weight(rank, mix_count, age_days, NO_STYLES)
 
 
 def mix(recorded_on: date, *tracks: MixTrack, categories: Optional[Set[str]] = None) -> Tracklist:
@@ -124,69 +111,23 @@ class DubTechnoSelection(TestCase):
         self.assertAlmostEqual(0.2, leaders[MEDIUM] / MARGINAL_SEEDS, delta=0.03)
         self.assertAlmostEqual(0.7, leaders[HEAVY] / MARGINAL_SEEDS, delta=0.03)
 
-    def test_premiums_cascade_with_dub_techno_ranked_highest(self) -> None:
-        premiums = style_premiums(STYLED_CORPUS)
-        ranked = [
-            {'Dub Techno', 'Minimal', 'Techno'},
-            {'Dub Techno', 'Minimal'},
-            {'Dub Techno', 'Techno'},
-            {'Dub Techno'},
-            {'Minimal', 'Techno'},
-            {'Minimal'},
-            {'Techno'}
-        ]
-        multipliers = [style_multiplier(categories, premiums) for categories in ranked]
-
-        self.assertEqual(multipliers, sorted(multipliers, reverse=True))
-        self.assertEqual(len(set(multipliers)), len(multipliers))
-
-    def test_dub_techno_outweighs_any_combination_without_it(self) -> None:
-        premiums = style_premiums(STYLED_CORPUS)
-
-        self.assertGreater(style_multiplier({'Dub Techno'}, premiums),
-                           style_multiplier({'Minimal', 'Techno'}, premiums))
-
-    def test_an_untagged_mix_gets_no_premium(self) -> None:
-        self.assertEqual(1.0, style_multiplier({'House'}, style_premiums(STYLED_CORPUS)))
-
-    def test_a_common_style_is_worth_less_per_mix_than_a_rare_one(self) -> None:
-        premiums = style_premiums(STYLED_CORPUS)
-
-        self.assertGreater(premiums['Dub Techno'], premiums['Techno'])
-        expected = STYLE_PRIORITIES['Dub Techno'] * len(STYLED_CORPUS) / 2
-
-        self.assertAlmostEqual(expected, premiums['Dub Techno'])
-
     def test_discouraged_styles_are_penalised_hardest_in_combination(self) -> None:
-        self.assertEqual(DISCOURAGED_STYLE_PENALTY, style_multiplier({'Ambient'}, NO_PREMIUMS))
-        self.assertEqual(DISCOURAGED_STYLE_PENALTY, style_multiplier({'IDM'}, NO_PREMIUMS))
-        self.assertAlmostEqual(DISCOURAGED_STYLE_PENALTY ** 2,
-                               style_multiplier({'Ambient', 'IDM'}, NO_PREMIUMS))
-        self.assertGreater(style_multiplier({'Ambient'}, NO_PREMIUMS),
-                           style_multiplier({'Ambient', 'IDM'}, NO_PREMIUMS))
+        plain = mix_weight(0, 10, 0, NO_STYLES)
 
-    def test_a_premium_and_a_penalty_compose(self) -> None:
-        premiums = style_premiums(STYLED_CORPUS)
-        expected = (premiums['Dub Techno'] + premiums['Minimal']) * DISCOURAGED_STYLE_PENALTY
+        self.assertAlmostEqual(plain * DISCOURAGED_STYLE_PENALTY, mix_weight(0, 10, 0, {'Ambient'}))
+        self.assertAlmostEqual(plain * DISCOURAGED_STYLE_PENALTY, mix_weight(0, 10, 0, {'IDM'}))
+        self.assertAlmostEqual(plain * DISCOURAGED_STYLE_PENALTY ** 2,
+                               mix_weight(0, 10, 0, {'Ambient', 'IDM'}))
 
-        self.assertAlmostEqual(expected, style_multiplier({'Dub Techno', 'Minimal', 'Ambient'}, premiums))
+    def test_an_unrelated_tag_costs_nothing(self) -> None:
+        self.assertEqual(mix_weight(0, 10, 0, NO_STYLES), mix_weight(0, 10, 0, {'Dub', 'Reggae'}))
 
-    def test_style_weighting_reaches_weigh_candidates(self) -> None:
+    def test_the_penalty_reaches_weigh_candidates(self) -> None:
         rhythmic = MixTrack(artist='Yagya', title='Rhythmic')
         ambient = MixTrack(artist='Loscil', title='Beatless')
         weights = weigh_candidates([
-            mix(TODAY, rhythmic, categories={'Dub Techno', 'Minimal'}),
+            mix(TODAY, rhythmic, categories={'Dub Techno'}),
             mix(TODAY, ambient, categories={'Dub Techno', 'Ambient'})
         ], TODAY)
 
         self.assertGreater(weights[rhythmic], weights[ambient])
-
-    def test_techno_only_mixes_are_outweighed_by_dub_techno_ones(self) -> None:
-        dub = MixTrack(artist='Yagya', title='Dubby')
-        techno = MixTrack(artist='Surgeon', title='Banger')
-        weights = weigh_candidates([
-            mix(TODAY, techno, categories={'Techno'}),
-            mix(TODAY, dub, categories={'Dub Techno'})
-        ], TODAY)
-
-        self.assertGreater(weights[dub], weights[techno])
