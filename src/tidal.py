@@ -2,6 +2,7 @@ import re
 import time
 import unicodedata
 from collections import deque
+from functools import partial
 from threading import Lock
 from typing import Callable, Deque, Dict, Iterable, List, Optional, Set, TypeVar, cast
 
@@ -11,7 +12,7 @@ from requests.exceptions import (  # type: ignore[import-untyped]
     HTTPError,
     Timeout,
 )
-from tidalapi import Session, Track, Album, Artist, UserPlaylist
+from tidalapi import Session, Track, Album, Artist, Playlist, UserPlaylist
 from tidalapi.exceptions import TooManyRequests
 from tidalapi.types import JsonObj
 
@@ -37,6 +38,8 @@ GENERIC_REMIX_SUFFIX = re.compile(r'\s*\((?:Remix|Mix)\)', re.IGNORECASE)
 DASH_REMASTER_SUFFIX = re.compile(r'\s*-\s*\d{4}\s+Remaster(?:ed)?', re.IGNORECASE)
 TITLE_NOISE_SUFFIXES = (COLLABORATION_PARENTHETICAL, TRACK_VERSION_SUFFIX, GENERIC_REMIX_SUFFIX, DASH_REMASTER_SUFFIX)
 
+
+PLAYLIST_PAGE_SIZE = 100
 
 MISSING_ARTIST: JsonObj = {'id': None, 'name': None}
 
@@ -100,15 +103,29 @@ class Tidal:
         return {item for item in items if isinstance(item, Track)}
 
     def get_playlist_tracks(self, playlist_id: str) -> Set[Track]:
-        items = self.__call_api(lambda: self.__tidal.playlist(playlist_id).items())
-        return {item for item in items if isinstance(item, Track)}
+        playlist = self.__call_api(lambda: self.__tidal.playlist(playlist_id))
+        return set(self.__playlist_tracks(playlist))
+
+    def __playlist_tracks(self, playlist: Playlist) -> List[Track]:
+        tracks: List[Track] = []
+        offset = 0
+        while True:
+            page = self.__call_api(partial(playlist.items, limit=PLAYLIST_PAGE_SIZE, offset=offset))
+            tracks.extend(item for item in page if isinstance(item, Track))
+            offset += len(page)
+            if len(page) < PLAYLIST_PAGE_SIZE:
+                return tracks
 
     def set_playlist_tracks(self, playlist_id: str, track_ids: List[str]) -> None:
+        wanted = set(track_ids)
         max_attempts = 5
         for attempt in range(max_attempts):
             playlist = cast(UserPlaylist, self.__call_api(lambda: self.__tidal.playlist(playlist_id)))
+            existing = [str(track.id) for track in self.__playlist_tracks(playlist)]
+            departing = [index for index, track_id in enumerate(existing) if track_id not in wanted]
             try:
-                self.__call_api(playlist.clear)
+                if departing:
+                    self.__call_api(partial(playlist.remove_by_indices, departing))
                 break
             except HTTPError as e:
                 precondition_failed = e.response is not None and e.response.status_code == 412
@@ -117,7 +134,10 @@ class Tidal:
                 time.sleep(min(10.0, 2 ** attempt))
         time.sleep(1)
         playlist = cast(UserPlaylist, self.__call_api(lambda: self.__tidal.playlist(playlist_id)))
-        self.__call_api(lambda: playlist.add(track_ids, limit=len(track_ids)))
+        surviving = {str(track.id) for track in self.__playlist_tracks(playlist)}
+        arriving = [track_id for track_id in track_ids if track_id not in surviving]
+        if arriving:
+            self.__call_api(lambda: playlist.add(arriving, limit=len(arriving)))
 
     def find_equivalent_track(self, last_fm_track: LastFmTrack) -> Optional[Track]:
         if last_fm_track in self.__track_find_cache:
