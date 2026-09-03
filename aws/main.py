@@ -39,7 +39,7 @@ class TidalAutomation(Stack):
         Rule(
             self,
             'UpdateDailyBlendSchedule',
-            schedule=Schedule.cron(hour='10', minute='30', day='*', month='*', year='*'),
+            schedule=Schedule.cron(hour='04', minute='30', day='*', month='*', year='*'),
         ).add_target(LambdaFunction(update_daily_blend))
 
 
