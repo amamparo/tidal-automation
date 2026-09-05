@@ -5,7 +5,8 @@ from typing import Callable, Optional
 
 from injector import inject, Injector
 
-from src.discogs import Discogs, deadline_clock
+from src.clock import deadline_clock
+from src.discogs import Discogs
 from src.environment import Environment
 from src.last_fm import LastFm
 from src.mixes_db import MixesDb, date_window
