@@ -8,6 +8,7 @@ from src.last_fm import LastFmTrack
 from src.mixes_db import MixTrack, Tracklist
 from src.playlist import (
     HOTTEST_MIX_WEIGHT,
+    OUTLIER_FENCE,
     PITCH_FADER_RANGE,
     RECENCY_HALF_LIFE_DAYS,
     centre_of_gravity,
@@ -18,7 +19,8 @@ from src.playlist import (
     mixable_selection,
     mixable_with,
     most_recommended,
-    tightest_window,
+    outlier_fence,
+    focused_selection,
     time_to_seed_again,
     weigh_candidates,
     weighted_draw
@@ -332,26 +334,43 @@ class MixableSelection(TestCase):
         self.assertEqual([], mixable_selection([], untimed.get, 1))
 
 
-class TightestWindow(TestCase):
-    def test_it_is_the_deviation_that_just_admits_a_full_playlist(self) -> None:
-        self.assertEqual(5.0, tightest_window([5.0, 1.0, 2.0, 9.0], 3))
+class OutlierFence(TestCase):
+    def test_it_is_the_median_absolute_deviation_around_the_median(self) -> None:
+        low, high = outlier_fence([124.0, 125.0, 126.0, 127.0, 128.0])
 
-    def test_a_pool_too_small_to_fill_falls_back_to_its_widest(self) -> None:
-        self.assertEqual(9.0, tightest_window([5.0, 1.0, 9.0], 100))
+        self.assertAlmostEqual(126.0 - OUTLIER_FENCE * 1.0, low)
+        self.assertAlmostEqual(126.0 + OUTLIER_FENCE * 1.0, high)
 
-    def test_an_empty_pool_has_no_window(self) -> None:
-        self.assertEqual(0.0, tightest_window([], 100))
+    def test_one_tempo_everywhere_still_leaves_room_to_refill(self) -> None:
+        low, high = outlier_fence([126.0] * 10)
+
+        self.assertLess(low, 126.0)
+        self.assertGreater(high, 126.0)
 
 
-class TighteningTheSelection(TestCase):
-    def test_it_narrows_past_the_pitch_fader_when_the_pool_allows(self) -> None:
-        tempos: Dict[str, Optional[int]] = {'a': 126, 'b': 127, 'edge': 134, 'c': 125}
+class FocusedSelection(TestCase):
+    def test_the_most_recommended_are_kept_when_they_already_agree(self) -> None:
+        folded = [(f't{n}', 126.0 + n % 3) for n in range(20)]
 
-        selected = mixable_selection(['a', 'b', 'edge', 'c'], tempos.get, 3)
+        self.assertEqual([f't{n}' for n in range(10)], focused_selection(folded, 10))
 
-        self.assertEqual(['a', 'b', 'c'], selected)
+    def test_an_outlier_is_replaced_by_the_next_recommended_inlier(self) -> None:
+        folded = [('a', 126.0), ('b', 127.0), ('wild', 200.0), ('c', 125.0), ('d', 126.0)]
 
-    def test_a_track_the_pitch_fader_rejects_is_never_admitted_by_the_window(self) -> None:
-        tempos: Dict[str, Optional[int]] = {'a': 126, 'b': 127, 'far': 200}
+        selected = focused_selection(folded, 4)
 
-        self.assertEqual(['a', 'b'], mixable_selection(['a', 'b', 'far'], tempos.get, 3))
+        self.assertNotIn('wild', selected)
+        self.assertEqual(['a', 'b', 'c', 'd'], selected)
+
+    def test_it_keeps_a_spread_rather_than_collapsing_onto_one_tempo(self) -> None:
+        folded = [('a', 126.0), ('b', 124.0), ('c', 128.0), ('d', 125.0), ('e', 127.0)]
+
+        selected = focused_selection(folded, 5)
+
+        self.assertEqual(5, len(selected))
+        self.assertEqual(5, len({dict(folded)[track_id] for track_id in selected}))
+
+    def test_it_stops_when_the_pool_runs_out_rather_than_looping(self) -> None:
+        folded = [('a', 126.0), ('b', 127.0), ('wild', 400.0)]
+
+        self.assertEqual(['a', 'b'], focused_selection(folded, 3))

@@ -19,6 +19,8 @@ HOTTEST_MIX_WEIGHT = 5.0
 RECENCY_HALF_LIFE_DAYS = 180.0
 SEED_REQUESTS = 2
 PITCH_FADER_RANGE = 0.08
+OUTLIER_FENCE = 2.0
+BPM_RESOLUTION = 1.0
 OCTAVE = 2.0
 HALF_OCTAVE = sqrt(OCTAVE)
 TITLE_QUALIFIER = re.compile(r'\s+[(\[].*$|\s+\d{1,3}$')
@@ -113,18 +115,33 @@ def centre_of_gravity(tempos: List[float]) -> float:
     return median([fold_to_octave(tempo, centre) for tempo in tempos])
 
 
-def tempo_deviation(tempo: float, centre: float) -> float:
-    return abs(fold_to_octave(tempo, centre) - centre)
-
-
 def mixable_with(tempo: float, centre: float) -> bool:
-    return tempo_deviation(tempo, centre) <= centre * PITCH_FADER_RANGE
+    return abs(fold_to_octave(tempo, centre) - centre) <= centre * PITCH_FADER_RANGE
 
 
-def tightest_window(deviations: List[float], playlist_size: int) -> float:
-    if len(deviations) < playlist_size:
-        return max(deviations, default=0.0)
-    return sorted(deviations)[playlist_size - 1]
+def outlier_fence(tempos: List[float]) -> Tuple[float, float]:
+    centre = median(tempos)
+    deviation = median([abs(tempo - centre) for tempo in tempos]) or BPM_RESOLUTION
+    return centre - OUTLIER_FENCE * deviation, centre + OUTLIER_FENCE * deviation
+
+
+def focused_selection(folded: List[Tuple[str, float]], playlist_size: int) -> List[str]:
+    selected = folded[:playlist_size]
+    considered = len(selected)
+    while selected:
+        low, high = outlier_fence([tempo for _, tempo in selected])
+        inliers = [(track_id, tempo) for track_id, tempo in selected if low <= tempo <= high]
+        refilled = False
+        while len(inliers) < playlist_size and considered < len(folded):
+            track_id, tempo = folded[considered]
+            considered += 1
+            if low <= tempo <= high:
+                inliers.append((track_id, tempo))
+                refilled = True
+        if len(inliers) == len(selected) and not refilled:
+            break
+        selected = inliers
+    return [track_id for track_id, _ in selected]
 
 
 def mixable_selection(ranked: List[str], tempo_of: Callable[[str], Optional[int]],
@@ -134,13 +151,15 @@ def mixable_selection(ranked: List[str], tempo_of: Callable[[str], Optional[int]
     if not timed:
         return []
     centre = centre_of_gravity([tempo for _, tempo in timed])
-    beatmatchable = [(track_id, tempo_deviation(tempo, centre))
-                     for track_id, tempo in timed if mixable_with(tempo, centre)]
-    window = tightest_window([deviation for _, deviation in beatmatchable], playlist_size)
-    mixable = [track_id for track_id, deviation in beatmatchable if deviation <= window]
+    beatmatchable = [(track_id, fold_to_octave(tempo, centre)) for track_id, tempo in timed
+                     if mixable_with(tempo, centre)]
+    if not beatmatchable:
+        return []
+    selected = focused_selection(beatmatchable, playlist_size)
+    tempos = sorted(dict(beatmatchable)[track_id] for track_id in selected)
     print(f'tempo: {len(timed)} of {len(ranked)} timed, {len(beatmatchable)} beatmatchable, '
-          f'{len(mixable)} within {100 * window / centre:.1f}% of {centre:.0f} bpm')
-    return mixable[:playlist_size]
+          f'{len(selected)} focused between {tempos[0]:.0f} and {tempos[-1]:.0f} bpm')
+    return selected
 
 
 def rebuild(tidal: Tidal, mixes_db: MixesDb, *, query: str, playlist_id: str, playlist_size: int,
