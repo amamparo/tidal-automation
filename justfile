@@ -27,7 +27,10 @@ check: lint types test synth
 diff:
     cdk diff
 
-deploy:
+secrets:
+    {{ python }} -m util.sync_secrets
+
+deploy: && secrets
     cdk deploy --require-approval never
 
 token:
