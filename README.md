@@ -4,8 +4,8 @@ Rebuilds two Tidal playlists on a daily schedule, each as its own AWS Lambda dep
 
 * **Daily Blend** — from Tidal's Daily Discover and New Arrivals mixes plus last.fm recommendations.
 * **Dub Techno** — from the tracklists of the currently hottest DJ mixes on
-  [MixesDB](https://www.mixesdb.com) tagged **both** Dub Techno and Minimal, picked by a weighted lottery
-  that favours hotter and more recent mixes.
+  [MixesDB](https://www.mixesdb.com) tagged **both** Dub Techno and Minimal but not House, picked by a
+  weighted lottery that favours hotter and more recent mixes.
 
 Both rebuild differentially: a track that survives an update keeps its original date-added, so sorting the
 playlist by that shows what is new and what has been hanging around.
