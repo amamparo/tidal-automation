@@ -6,6 +6,7 @@ from typing import Optional
 from injector import inject, Injector
 
 from src.environment import Environment
+from src.last_fm import LastFm
 from src.mixes_db import MixesDb, date_window
 from src.playlist import rebuild
 from src.tidal import Tidal
@@ -16,11 +17,12 @@ def search_query(today: date) -> str:
 
 
 @inject
-def main(environment: Environment, tidal: Tidal, mixes_db: MixesDb) -> None:
+def main(environment: Environment, tidal: Tidal, mixes_db: MixesDb, last_fm: LastFm) -> None:
     today = date.today()
     rebuild(
         tidal,
         mixes_db,
+        last_fm,
         query=search_query(today),
         playlist_id=environment.require('DUB_TECHNO_PLAYLIST_ID'),
         playlist_size=int(environment.require('DUB_TECHNO_SIZE')),
