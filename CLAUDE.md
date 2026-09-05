@@ -47,7 +47,7 @@ Both run on staggered 15-minute intervals from 10:00 UTC, which is 04:00 Chicago
 
 MixesDB's `Special:Search` page renders its results **client-side**, so it cannot be scraped. Use the
 MediaWiki JSON API at `https://www.mixesdb.com/w/api.php`, which honours MixesDB's custom search keywords
-(`style:`, `date:`, `hasplayer`, `-tracklist:none`). `srsort=hotness_desc` works; bare `hotness` does not.
+(`style:`, `date:`, `hasplayer`, `tracklist:`). `srsort=hotness_desc` works; bare `hotness` does not.
 There is **no OR syntax between terms** — `|`, `,` and `OR` all behave as AND, so multiple `style:` terms are
 an *intersection*. Darkroom asked for `style:"Dub Techno" style:Minimal` and no longer does: measured over the
 same 12 months, the intersection is 15 mixes while `style:"Dub Techno"` alone is 123, and the larger corpus is
@@ -56,7 +56,10 @@ Techno and Ambient, and the artist head is Rhythm & Sound, Luigi Tozzi, Basic Ch
 where the intersection corpus contained Bob Marley and "Is It Disco?". `minimal` was the less distinguishing
 tag anyway (tag rarity 0.627 against 1.238 for `dub techno`) and was pulling in minimal-*house* mixes. A
 genuine union across styles would still mean one request per style merged client-side; that was tried and
-reverted. **Inside a single keyword the comma is a
+reverted. The query also asks for `tracklist:complete` rather than merely `-tracklist:none`, which over the
+same window is 46 mixes and 1053 candidates against 118 and 2128 — still more than the clock can seed, so
+it costs no seeds, and an incomplete tracklist lists only the tracks somebody could identify, which skews
+toward the recognisable. `hasplayer` was measured and not adopted: it takes 123 mixes to 122. **Inside a single keyword the comma is a
 value list, not AND**: `date:2026,2025-12,2025-11` matches a mix from any one of them, and token order does
 not change the result set. **Negation works**: a leading `-` on `style:` excludes server-side, verified 0 leaks over 500 results.
 `srlimit=max` caps anonymous results at 500, so a query with more hits is silently truncated to the 500

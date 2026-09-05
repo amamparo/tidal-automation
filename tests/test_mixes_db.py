@@ -189,9 +189,9 @@ class DateWindow(TestCase):
 
 
 class SearchQuery(TestCase):
-    def test_it_asks_for_dub_techno_with_a_tracklist_inside_the_date_window(self) -> None:
+    def test_it_asks_for_fully_tracklisted_dub_techno_inside_the_date_window(self) -> None:
         self.assertEqual(
-            f'style:"Dub Techno" -tracklist:none date:{date_window(TODAY, WINDOW_MONTHS)}',
+            f'style:"Dub Techno" tracklist:complete date:{date_window(TODAY, WINDOW_MONTHS)}',
             search_query(TODAY, WINDOW_MONTHS)
         )
 

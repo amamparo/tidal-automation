@@ -12,7 +12,7 @@ from src.tidal import Tidal
 
 
 def search_query(today: date, months: int) -> str:
-    return f'style:"Dub Techno" -tracklist:none date:{date_window(today, months)}'
+    return f'style:"Dub Techno" tracklist:complete date:{date_window(today, months)}'
 
 
 @inject
