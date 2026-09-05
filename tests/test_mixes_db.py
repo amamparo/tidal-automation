@@ -190,8 +190,7 @@ class DateWindow(TestCase):
 class SearchQuery(TestCase):
     def test_search_query(self) -> None:
         self.assertEqual(
-            'style:"Dub Techno" style:Minimal -style:House -tracklist:none '
-            'date:2026,2025,2024-12,2024-11,2024-10,2024-09',
+            'style:"Dub Techno" style:Minimal -tracklist:none date:2026,2025,2024-12,2024-11,2024-10,2024-09',
             search_query(date(2026, 9, 3))
         )
 
