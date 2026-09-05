@@ -1,11 +1,8 @@
 import re
-from collections import defaultdict
+from collections import Counter
 from dataclasses import dataclass
-from datetime import date
-from math import log
-from random import Random
 from statistics import median
-from typing import Callable, Dict, List, Optional, Tuple
+from typing import Callable, List, Optional, Tuple
 
 from requests.exceptions import HTTPError  # type: ignore[import-untyped]
 from tidalapi import Track
@@ -16,8 +13,6 @@ from src.last_fm import LastFmTrack
 from src.mixes_db import WIDENING_MONTHS, WINDOW_MONTHS, MixesDb, MixTrack, Tracklist, searchable
 from src.tidal import Tidal
 
-HOTTEST_MIX_WEIGHT = 5.0
-RECENCY_HALF_LIFE_DAYS = 180.0
 SEED_REQUESTS = 2
 PITCH_FADER_RANGE = 0.08
 MIXABLE_SPAN = 1.0 + PITCH_FADER_RANGE
@@ -30,25 +25,8 @@ class TimedTrack:
     tempo: float
 
 
-def mix_weight(rank: int, mix_count: int, age_days: int) -> float:
-    hotness = HOTTEST_MIX_WEIGHT ** (1 - rank / mix_count)
-    recency = RECENCY_HALF_LIFE_DAYS / (RECENCY_HALF_LIFE_DAYS + max(age_days, 0))
-    return hotness * recency
-
-
-def weigh_candidates(tracklists: List[Tracklist], today: date) -> Dict[MixTrack, float]:
-    weights: Dict[MixTrack, float] = defaultdict(float)
-    for rank, tracklist in enumerate(tracklists):
-        weight = mix_weight(rank, len(tracklists), (today - tracklist.recorded_on).days)
-        for track in tracklist.tracks:
-            weights[track] += weight
-    return weights
-
-
-def weighted_draw(weights: Dict[MixTrack, float], random_seed: int) -> List[MixTrack]:
-    random = Random(random_seed)
-    drawable = {track: weight for track, weight in weights.items() if weight > 0.0}
-    return sorted(drawable, key=lambda track: -log(random.random()) / drawable[track])
+def candidates_from(tracklists: List[Tracklist]) -> List[MixTrack]:
+    return list(dict.fromkeys(track for tracklist in tracklists for track in tracklist.tracks))
 
 
 def is_same_recording(mix_title: str, found_name: str) -> bool:
@@ -74,9 +52,9 @@ def time_to_seed_again(tidal: Tidal, seconds_left: float, playlist_size: int) ->
     return seconds_left - seconds_to_seed >= tidal.seconds_to_set_playlist(playlist_size)
 
 
-def gather_recommendations(tidal: Tidal, candidates: List[MixTrack], weights: Dict[MixTrack, float],
-                           playlist_size: int, seconds_left: Callable[[], float]) -> Dict[str, List[float]]:
-    recommended: Dict[str, List[float]] = defaultdict(list)
+def gather_recommendations(tidal: Tidal, candidates: List[MixTrack], playlist_size: int,
+                           seconds_left: Callable[[], float]) -> Counter:
+    recommended: Counter = Counter()
     seeded = without_radio = 0
 
     with tqdm(total=len(candidates), desc='Reading radios') as progress:
@@ -92,18 +70,13 @@ def gather_recommendations(tidal: Tidal, candidates: List[MixTrack], weights: Di
                 without_radio += 1
                 continue
             seeded += 1
-            for track in radio:
-                recommended[str(track.id)].append(weights[candidate])
+            recommended.update(str(track.id) for track in radio)
     print(f'radios: {seeded} seeds, {without_radio} without a radio, {len(recommended)} tracks recommended')
     return recommended
 
 
-def most_recommended(recommended: Dict[str, List[float]]) -> List[str]:
-    def consensus(track_id: str) -> Tuple[int, float, str]:
-        seed_weights = recommended[track_id]
-        return -len(seed_weights), -sum(seed_weights), track_id
-
-    return sorted(recommended, key=consensus)
+def most_recommended(recommended: Counter) -> List[str]:
+    return sorted(recommended, key=lambda track_id: (-recommended[track_id], track_id))
 
 
 def tempo_span(tempos: List[float]) -> float:
@@ -146,31 +119,30 @@ def mixable_selection(ranked: List[str], tempo_of: Callable[[str], Optional[int]
     return [track.track_id for track in selected]
 
 
-def widened_corpus(mixes_db: MixesDb, query_for: Callable[[int], str], today: date,
-                   playlist_size: int) -> Tuple[List[Tracklist], Dict[MixTrack, float]]:
+def widened_corpus(mixes_db: MixesDb, query_for: Callable[[int], str],
+                   playlist_size: int) -> Tuple[List[Tracklist], List[MixTrack]]:
     months = WINDOW_MONTHS
     tracklists = mixes_db.get_tracklists(query_for(months))
-    weights = weigh_candidates(tracklists, today)
-    while len(weights) < playlist_size:
+    candidates = candidates_from(tracklists)
+    while len(candidates) < playlist_size:
         months += WIDENING_MONTHS
         wider = mixes_db.get_tracklists(query_for(months))
-        widened = weigh_candidates(wider, today)
-        if len(widened) <= len(weights):
+        widened = candidates_from(wider)
+        if len(widened) <= len(candidates):
             break
-        tracklists, weights = wider, widened
-    print(f'mixesdb: {len(tracklists)} tracklists over {months} months, {len(weights)} candidates')
-    return tracklists, weights
+        tracklists, candidates = wider, widened
+    print(f'mixesdb: {len(tracklists)} tracklists over {months} months, {len(candidates)} candidates')
+    return tracklists, candidates
 
 
 def rebuild(tidal: Tidal, mixes_db: MixesDb, *, query_for: Callable[[int], str], playlist_id: str,
-            playlist_size: int, today: date, seconds_left: Callable[[], float]) -> None:
-    tracklists, weights = widened_corpus(mixes_db, query_for, today, playlist_size)
-    if len(weights) < playlist_size:
+            playlist_size: int, seconds_left: Callable[[], float]) -> None:
+    tracklists, candidates = widened_corpus(mixes_db, query_for, playlist_size)
+    if len(candidates) < playlist_size:
         raise RuntimeError(
-            f'only {len(weights)} candidates from {len(tracklists)} tracklists for {playlist_size} tracks')
+            f'only {len(candidates)} candidates from {len(tracklists)} tracklists for {playlist_size} tracks')
 
-    candidates = weighted_draw(weights, today.toordinal())
-    recommended = gather_recommendations(tidal, candidates, weights, playlist_size, seconds_left)
+    recommended = gather_recommendations(tidal, candidates, playlist_size, seconds_left)
     ranked = most_recommended(recommended)
     track_ids = mixable_selection(ranked, tidal.beats_per_minute, playlist_size)
     if len(track_ids) < playlist_size:

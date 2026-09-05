@@ -25,7 +25,6 @@ def main(environment: Environment, tidal: Tidal, mixes_db: MixesDb,
         query_for=lambda months: search_query(today, months),
         playlist_id=environment.require('DARKROOM_PLAYLIST_ID'),
         playlist_size=int(environment.require('DARKROOM_SIZE')),
-        today=today,
         seconds_left=seconds_left
     )
 
