@@ -58,3 +58,11 @@ just check         # Run lint, types, test, and synth (full quality check)
 * de-duplication: as much as possible, put repeated code into well-named helper methods.
   * however, we don't have to be DRY for DRY's sake
   * for e.g., if the helper method only has one line of code, and/or it's only used in two or three places, we don't need a new function
+
+### Simplification cadence
+A `Stop` hook (`.claude/hooks/simplify-cadence.sh`, wired up in `.claude/settings.json`) counts the lines of
+`src/`, `tests/` and `aws/` that have changed since the last simplifier pass. Once that crosses
+`SIMPLIFY_CHURN_THRESHOLD` (default 80) it asks for a `code-simplifier` pass scoped to just those files, so
+cleanup batches up instead of running after every edit. Deletions count toward the churn but are never sent
+to the simplifier. Run the script with `--checkpoint` after a pass to absorb it into the baseline, or
+`--status` to see what is pending.

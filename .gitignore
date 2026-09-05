@@ -4,4 +4,6 @@ cdk.out
 .env
 .claude/*
 !.claude/agents/
+!.claude/hooks/
+!.claude/settings.json
 .venv
