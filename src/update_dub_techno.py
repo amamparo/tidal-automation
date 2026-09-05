@@ -1,10 +1,11 @@
 # pylint: disable=duplicate-code
 from datetime import date
 from time import time
-from typing import Optional
+from typing import Callable, Optional
 
 from injector import inject, Injector
 
+from src.discogs import Discogs, deadline_clock
 from src.environment import Environment
 from src.last_fm import LastFm
 from src.mixes_db import MixesDb, date_window
@@ -17,22 +18,25 @@ def search_query(today: date) -> str:
 
 
 @inject
-def main(environment: Environment, tidal: Tidal, mixes_db: MixesDb, last_fm: LastFm) -> None:
+def main(environment: Environment, tidal: Tidal, mixes_db: MixesDb, last_fm: LastFm, discogs: Discogs,
+         *, seconds_left: Callable[[], float]) -> None:
     today = date.today()
     rebuild(
         tidal,
         mixes_db,
         last_fm,
+        discogs,
         query=search_query(today),
         playlist_id=environment.require('DUB_TECHNO_PLAYLIST_ID'),
         playlist_size=int(environment.require('DUB_TECHNO_SIZE')),
-        today=today
+        today=today,
+        seconds_left=seconds_left
     )
 
 
-def lambda_handler(event: Optional[dict] = None, context: Optional[dict] = None) -> None:
+def lambda_handler(event: Optional[dict] = None, context: Optional[object] = None) -> None:
     # pylint: disable=unused-argument
-    Injector().call_with_injection(main)
+    Injector().call_with_injection(main, kwargs={'seconds_left': deadline_clock(context)})
 
 
 if __name__ == '__main__':

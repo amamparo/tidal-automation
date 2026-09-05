@@ -5,13 +5,14 @@ from math import log, sqrt
 from random import Random
 from statistics import median
 from time import monotonic
-from typing import Dict, Iterable, List, Optional
+from typing import Callable, Dict, Iterable, List, Optional
 
 from requests.exceptions import HTTPError  # type: ignore[import-untyped]
 from tidalapi import Track
 from tidalapi.exceptions import ObjectNotFound
 from tqdm import tqdm
 
+from src.discogs import Discogs
 from src.last_fm import LastFm, LastFmTrack
 from src.mixes_db import MixesDb, MixTrack, Tracklist, searchable
 from src.tidal import Tidal
@@ -38,6 +39,24 @@ def weigh_candidates(tracklists: List[Tracklist], today: date) -> Dict[MixTrack,
     return weights
 
 
+def genre_fingerprint(*sources: Dict[str, float]) -> Dict[str, float]:
+    fingerprint: Dict[str, float] = defaultdict(float)
+    for source in sources:
+        magnitude = sqrt(sum(weight ** 2 for weight in source.values()))
+        if magnitude == 0.0:
+            continue
+        for name, weight in source.items():
+            fingerprint[name] += weight / magnitude
+    return dict(fingerprint)
+
+
+def weight_per_artist(weights: Dict[MixTrack, float]) -> Dict[str, float]:
+    mass: Dict[str, float] = defaultdict(float)
+    for track, weight in weights.items():
+        mass[track.artist] += weight
+    return mass
+
+
 def genre_profile(artist_tags: Iterable[Dict[str, float]]) -> Dict[str, float]:
     profile: Dict[str, float] = defaultdict(float)
     for tags in artist_tags:
@@ -55,14 +74,35 @@ def genre_affinity(tags: Dict[str, float], profile: Dict[str, float]) -> float:
     return shared / (artist_magnitude * profile_magnitude)
 
 
-def weigh_by_genre(last_fm: LastFm, weights: Dict[MixTrack, float]) -> Dict[MixTrack, float]:
+def styles_while_time_allows(discogs: Discogs, artists: List[str],
+                             seconds_left: Callable[[], float]) -> Dict[str, Dict[str, float]]:
+    styles_by_artist: Dict[str, Dict[str, float]] = {}
+    with tqdm(total=len(artists), desc='Reading releases') as progress:
+        for artist in artists:
+            if seconds_left() - discogs.seconds_per_request < MATCH_DEADLINE_SECONDS:
+                break
+            styles_by_artist[artist] = discogs.styles(artist)
+            progress.update(1)
+    return styles_by_artist
+
+
+def weigh_by_genre(last_fm: LastFm, discogs: Discogs, weights: Dict[MixTrack, float],
+                   seconds_left: Callable[[], float]) -> Dict[MixTrack, float]:
     artists = sorted({track.artist for track in weights})
     tags_by_artist = {artist: last_fm.top_tags(artist) for artist in tqdm(artists, desc='Reading genres')}
-    profile = genre_profile(tags_by_artist.values())
-    affinities = {artist: genre_affinity(tags, profile) for artist, tags in tags_by_artist.items() if tags}
+
+    mass = weight_per_artist(weights)
+    unknown_first = sorted(artists, key=lambda artist: (bool(tags_by_artist[artist]), -mass[artist]))
+    styles_by_artist = styles_while_time_allows(discogs, unknown_first, seconds_left)
+
+    fingerprints = {artist: genre_fingerprint(tags_by_artist[artist], styles_by_artist.get(artist, {}))
+                    for artist in artists}
+    profile = genre_profile(fingerprints.values())
+    affinities = {artist: genre_affinity(fingerprint, profile)
+                  for artist, fingerprint in fingerprints.items() if fingerprint}
     typical = median(affinities.values()) if affinities else 1.0
-    print(f'last.fm: {len(affinities)} of {len(artists)} artists tagged across {len(profile)} genres, '
-          f'untagged artists weigh {typical:.2f}')
+    print(f'genres: {len(affinities)} of {len(artists)} artists fingerprinted across {len(profile)} genres, '
+          f'{len(styles_by_artist)} enriched from discogs, the rest weigh {typical:.2f}')
     return {track: weight * affinities.get(track.artist, typical) for track, weight in weights.items()}
 
 
@@ -117,8 +157,9 @@ def find_tracks_on_tidal(tidal: Tidal, candidates: List[MixTrack], playlist_size
     return track_ids
 
 
-def rebuild(tidal: Tidal, mixes_db: MixesDb, last_fm: LastFm, *, query: str, playlist_id: str,
-            playlist_size: int, today: date) -> None:
+def rebuild(tidal: Tidal, mixes_db: MixesDb, last_fm: LastFm, discogs: Discogs, *, query: str,
+            playlist_id: str, playlist_size: int, today: date,
+            seconds_left: Callable[[], float]) -> None:
     tracklists = mixes_db.get_tracklists(query)
     weights = weigh_candidates(tracklists, today)
     print(f'mixesdb: {len(tracklists)} tracklists, {len(weights)} candidates')
@@ -126,7 +167,7 @@ def rebuild(tidal: Tidal, mixes_db: MixesDb, last_fm: LastFm, *, query: str, pla
         raise RuntimeError(
             f'only {len(weights)} candidates from {len(tracklists)} tracklists for {playlist_size} tracks')
 
-    weights = weigh_by_genre(last_fm, weights)
+    weights = weigh_by_genre(last_fm, discogs, weights, seconds_left)
     track_ids = find_tracks_on_tidal(tidal, weighted_draw(weights, today.toordinal()), playlist_size)
     if len(track_ids) < max(1, playlist_size // 2):
         raise RuntimeError(f'only {len(track_ids)} tracks matched; leaving the playlist untouched')

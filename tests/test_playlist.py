@@ -1,12 +1,17 @@
 from collections import Counter
 from datetime import date, timedelta
+from math import sqrt
 from typing import Dict, cast
 from unittest import TestCase
 
+from src.discogs import Discogs
 from src.last_fm import LastFm
 from src.mixes_db import MixTrack, Tracklist
 from src.playlist import (
     HOTTEST_MIX_WEIGHT,
+    MATCH_DEADLINE_SECONDS,
+    genre_fingerprint,
+    weight_per_artist,
     RECENCY_HALF_LIFE_DAYS,
     genre_affinity,
     genre_profile,
@@ -133,6 +138,24 @@ def stub_last_fm(tags: Dict[str, Dict[str, float]]) -> LastFm:
     return cast(LastFm, Stub())
 
 
+def stub_discogs(styles_by_artist: Dict[str, Dict[str, float]], cost: float = 0.0) -> Discogs:
+    class Stub:
+        seconds_per_request = cost
+
+        def styles(self, artist: str) -> Dict[str, float]:
+            return styles_by_artist.get(artist, {})
+
+    return cast(Discogs, Stub())
+
+
+def no_deadline() -> float:
+    return float('inf')
+
+
+def barely_enough_time() -> float:
+    return MATCH_DEADLINE_SECONDS + 5.0
+
+
 TECHNO_CORPUS = {
     'Basic Channel': {'dub techno': 1.0, 'techno': 0.8, 'minimal': 0.4},
     'Rrose': {'techno': 1.0, 'minimal': 0.7, 'dub techno': 0.3},
@@ -172,20 +195,25 @@ class GenreAffinity(TestCase):
 
 class GenreWeighting(TestCase):
     def test_an_off_genre_artist_is_weighed_down(self) -> None:
-        weighed = weigh_by_genre(stub_last_fm(TECHNO_CORPUS), {**CORPUS_TRACKS, IN_GENRE: 1.0, OFF_GENRE: 1.0})
+        pool = {**CORPUS_TRACKS, IN_GENRE: 1.0, OFF_GENRE: 1.0}
+
+        weighed = weigh_by_genre(stub_last_fm(TECHNO_CORPUS), stub_discogs({}), pool, no_deadline)
 
         self.assertGreater(weighed[IN_GENRE], weighed[OFF_GENRE])
 
     def test_the_pool_itself_is_what_sinks_the_outlier(self) -> None:
-        alone = weigh_by_genre(stub_last_fm(TECHNO_CORPUS), {IN_GENRE: 1.0, OFF_GENRE: 1.0})
-        crowded = weigh_by_genre(stub_last_fm(TECHNO_CORPUS), {**CORPUS_TRACKS, IN_GENRE: 1.0, OFF_GENRE: 1.0})
+        pair = {IN_GENRE: 1.0, OFF_GENRE: 1.0}
+
+        alone = weigh_by_genre(stub_last_fm(TECHNO_CORPUS), stub_discogs({}), pair, no_deadline)
+        crowded = weigh_by_genre(stub_last_fm(TECHNO_CORPUS), stub_discogs({}),
+                                 {**CORPUS_TRACKS, **pair}, no_deadline)
 
         self.assertLess(crowded[OFF_GENRE] / crowded[IN_GENRE], alone[OFF_GENRE] / alone[IN_GENRE])
 
     def test_an_artist_last_fm_does_not_know_is_treated_as_typical(self) -> None:
         pool = {**CORPUS_TRACKS, IN_GENRE: 1.0, UNTAGGED: 1.0, OFF_GENRE: 1.0}
 
-        weighed = weigh_by_genre(stub_last_fm(TECHNO_CORPUS), pool)
+        weighed = weigh_by_genre(stub_last_fm(TECHNO_CORPUS), stub_discogs({}), pool, no_deadline)
 
         self.assertGreater(weighed[UNTAGGED], weighed[OFF_GENRE])
         self.assertLess(weighed[UNTAGGED], weighed[IN_GENRE])
@@ -194,6 +222,54 @@ class GenreWeighting(TestCase):
         hotter = MixTrack(artist='Rrose', title='Hotter')
         colder = MixTrack(artist='Rrose', title='Colder')
 
-        weighed = weigh_by_genre(stub_last_fm(TECHNO_CORPUS), {hotter: 2.0, colder: 1.0})
+        weighed = weigh_by_genre(stub_last_fm(TECHNO_CORPUS), stub_discogs({}), {hotter: 2.0, colder: 1.0}, no_deadline)
 
         self.assertAlmostEqual(2.0, weighed[hotter] / weighed[colder])
+
+
+class GenreFingerprint(TestCase):
+    def test_each_source_contributes_equally_whatever_its_scale(self) -> None:
+        fingerprint = genre_fingerprint({'techno': 100.0, 'dub techno': 50.0}, {'house': 2.0})
+
+        self.assertAlmostEqual(1.0, fingerprint['house'])
+        self.assertAlmostEqual(1.0, sqrt(fingerprint['techno'] ** 2 + fingerprint['dub techno'] ** 2))
+
+    def test_the_sources_add_where_they_agree(self) -> None:
+        self.assertAlmostEqual(2.0, genre_fingerprint({'techno': 1.0}, {'techno': 5.0})['techno'])
+
+    def test_an_empty_source_is_skipped_rather_than_dividing_by_zero(self) -> None:
+        self.assertEqual({'techno': 1.0}, genre_fingerprint({'techno': 3.0}, {}))
+        self.assertEqual({}, genre_fingerprint({}, {}))
+
+
+class ArtistWeight(TestCase):
+    def test_weight_sums_over_an_artists_tracks(self) -> None:
+        mass = weight_per_artist({
+            MixTrack(artist='Rrose', title='a'): 1.0,
+            MixTrack(artist='Rrose', title='b'): 2.0,
+            MixTrack(artist='Quantec', title='c'): 5.0
+        })
+
+        self.assertEqual({'Rrose': 3.0, 'Quantec': 5.0}, dict(mass))
+
+
+class DiscogsEnrichment(TestCase):
+    def test_discogs_reaches_an_artist_last_fm_cannot(self) -> None:
+        pool = {**CORPUS_TRACKS, IN_GENRE: 1.0, UNTAGGED: 1.0}
+        off_genre_styles = stub_discogs({'Critical Digital': {'house': 3.0, 'disco': 2.0}})
+
+        blind = weigh_by_genre(stub_last_fm(TECHNO_CORPUS), stub_discogs({}), pool, no_deadline)
+        seeing = weigh_by_genre(stub_last_fm(TECHNO_CORPUS), off_genre_styles, pool, no_deadline)
+
+        self.assertLess(seeing[UNTAGGED] / seeing[IN_GENRE], blind[UNTAGGED] / blind[IN_GENRE])
+
+    def test_enrichment_stops_rather_than_eating_the_matching_deadline(self) -> None:
+        pool = {**CORPUS_TRACKS, UNTAGGED: 1.0}
+        styles = {'Critical Digital': {'house': 3.0}}
+
+        roomy = weigh_by_genre(stub_last_fm(TECHNO_CORPUS), stub_discogs(styles, 1.0),
+                               pool, barely_enough_time)
+        tight = weigh_by_genre(stub_last_fm(TECHNO_CORPUS), stub_discogs(styles, 10.0),
+                               pool, barely_enough_time)
+
+        self.assertNotAlmostEqual(roomy[UNTAGGED], tight[UNTAGGED])

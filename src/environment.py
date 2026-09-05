@@ -1,6 +1,6 @@
 import json
 from os import environ
-from typing import Dict
+from typing import Dict, Optional
 
 import boto3
 from dotenv import load_dotenv
@@ -16,10 +16,13 @@ class Environment:
         self.__secret_environment: Dict[str, str] = self.__import_from(secret_arn) if secret_arn else {}
 
     def require(self, name: str) -> str:
-        value = self.__secret_environment.get(name, environ.get(name))
+        value = self.get(name)
         if value is None:
             raise KeyError(f'missing environment variable: {name}')
         return value
+
+    def get(self, name: str) -> Optional[str]:
+        return self.__secret_environment.get(name, environ.get(name))
 
     @staticmethod
     def __import_from(secret_arn: str) -> Dict[str, str]:
