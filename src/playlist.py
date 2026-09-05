@@ -5,7 +5,7 @@ from math import log, sqrt
 from random import Random
 from statistics import median
 from time import monotonic
-from typing import Callable, Dict, Iterable, List, Optional
+from typing import Callable, Dict, Iterable, List, Optional, Tuple
 
 from requests.exceptions import HTTPError  # type: ignore[import-untyped]
 from tidalapi import Track
@@ -21,6 +21,8 @@ HOTTEST_MIX_WEIGHT = 5.0
 RECENCY_HALF_LIFE_DAYS = 180.0
 MATCH_DEADLINE_SECONDS = 420
 CONSECUTIVE_MISS_LIMIT = 40
+PITCH_FADER_RANGE = 0.08
+OCTAVE = sqrt(2.0)
 TITLE_QUALIFIER = re.compile(r'\s+[(\[].*$|\s+\d{1,3}$')
 
 
@@ -164,14 +166,39 @@ def find_track(tidal: Tidal, track: MixTrack) -> Optional[Track]:
     return found if found and is_same_recording(track.title, found.name or '') else None
 
 
+def fold_to_octave(tempo: float, centre: float) -> float:
+    while tempo < centre / OCTAVE:
+        tempo *= 2.0
+    while tempo > centre * OCTAVE:
+        tempo /= 2.0
+    return tempo
+
+
+def mixable_tempo(tempos: List[float]) -> float:
+    centre = median(tempos)
+    return median([fold_to_octave(tempo, centre) for tempo in tempos])
+
+
+def mixable_with(tempo: float, centre: float) -> bool:
+    return abs(fold_to_octave(tempo, centre) - centre) <= centre * PITCH_FADER_RANGE
+
+
+def mixable_selection(matched: List[Tuple[str, float]]) -> List[str]:
+    if not matched:
+        return []
+    centre = mixable_tempo([tempo for _, tempo in matched])
+    return [track_id for track_id, tempo in matched if mixable_with(tempo, centre)]
+
+
 def find_tracks_on_tidal(tidal: Tidal, candidates: List[MixTrack], playlist_size: int) -> List[str]:
-    track_ids: List[str] = []
+    matched: List[Tuple[str, float]] = []
+    selected: List[str] = []
     deadline = monotonic() + MATCH_DEADLINE_SECONDS
-    lookups = consecutive_misses = 0
+    lookups = consecutive_misses = untimed = 0
 
     with tqdm(total=playlist_size, desc='Building playlist') as progress:
         for candidate in candidates:
-            if len(track_ids) >= playlist_size or monotonic() > deadline:
+            if len(selected) >= playlist_size or monotonic() > deadline:
                 break
             lookups += 1
             found = find_track(tidal, candidate)
@@ -183,13 +210,22 @@ def find_tracks_on_tidal(tidal: Tidal, candidates: List[MixTrack], playlist_size
                 continue
             consecutive_misses = 0
             track_id = str(found.id)
-            if track_id in track_ids:
+            if any(track_id == already for already, _ in matched):
                 continue
-            track_ids.append(track_id)
-            progress.write(f'\033[92m✓ {found.name} - {candidate.artist}\033[0m')
-            progress.update(1)
-    print(f'tidal: {lookups} lookups, {len(track_ids)} tracks')
-    return track_ids
+            tempo = tidal.beats_per_minute(found)
+            if not tempo:
+                untimed += 1
+                progress.write(f'\033[90m✗ {found.name} - {candidate.artist} (no tempo)\033[0m')
+                continue
+            matched.append((track_id, float(tempo)))
+            selected = mixable_selection(matched)
+            progress.n = min(len(selected), playlist_size)
+            progress.refresh()
+            progress.write(f'\033[92m✓ {found.name} - {candidate.artist} ({tempo} bpm)\033[0m')
+    centre = mixable_tempo([tempo for _, tempo in matched]) if matched else 0.0
+    print(f'tidal: {lookups} lookups, {len(matched)} timed, {untimed} untimed, '
+          f'{len(selected)} mixable around {centre:.0f} bpm')
+    return selected[:playlist_size]
 
 
 def rebuild(tidal: Tidal, mixes_db: MixesDb, last_fm: LastFm, discogs: Discogs, *, query: str,
