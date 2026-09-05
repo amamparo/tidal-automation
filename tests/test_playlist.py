@@ -5,8 +5,9 @@ from typing import Callable, Dict, List, Optional, cast
 from unittest import TestCase
 
 from src.last_fm import LastFmTrack
-from src.mixes_db import MixTrack, Tracklist
+from src.mixes_db import WIDENING_MONTHS, WINDOW_MONTHS, MixesDb, MixTrack, Tracklist
 from src.playlist import (
+    widened_corpus,
     HOTTEST_MIX_WEIGHT,
     PITCH_FADER_RANGE,
     RECENCY_HALF_LIFE_DAYS,
@@ -343,3 +344,47 @@ class AnnealedSelection(TestCase):
         timed = timed_tracks(a=126.0, wild=300.0)
 
         self.assertEqual(['a'], [track.track_id for track in annealed_selection(timed, 2)])
+
+
+class StubMixesDb:
+    def __init__(self, by_months: Dict[int, int]) -> None:
+        self.by_months = by_months
+        self.asked: List[int] = []
+
+    def get_tracklists(self, query: str) -> List[Tracklist]:
+        months = int(query)
+        self.asked.append(months)
+        available = self.by_months[max(m for m in self.by_months if m <= months)]
+        return [mix(TODAY, *[MixTrack(artist=f'a{n}', title=f't{n}') for n in range(available)])]
+
+
+def stub_mixes_db(by_months: Dict[int, int]) -> MixesDb:
+    return cast(MixesDb, StubMixesDb(by_months))
+
+
+class WideningCorpus(TestCase):
+    def test_a_window_with_enough_candidates_is_not_widened(self) -> None:
+        mixes_db = stub_mixes_db({WINDOW_MONTHS: 250})
+
+        _, weights = widened_corpus(mixes_db, str, TODAY, PLAYLIST_SIZE)
+
+        self.assertEqual(250, len(weights))
+        self.assertEqual([WINDOW_MONTHS], getattr(mixes_db, 'asked'))
+
+    def test_a_thin_window_widens_until_it_can_fill_the_playlist(self) -> None:
+        mixes_db = stub_mixes_db({WINDOW_MONTHS: 20, WINDOW_MONTHS + WIDENING_MONTHS: 60,
+                                  WINDOW_MONTHS + 2 * WIDENING_MONTHS: 140})
+
+        _, weights = widened_corpus(mixes_db, str, TODAY, PLAYLIST_SIZE)
+
+        self.assertEqual(140, len(weights))
+        self.assertEqual([WINDOW_MONTHS, WINDOW_MONTHS + WIDENING_MONTHS,
+                          WINDOW_MONTHS + 2 * WIDENING_MONTHS], getattr(mixes_db, 'asked'))
+
+    def test_widening_stops_once_a_wider_window_adds_nothing(self) -> None:
+        mixes_db = stub_mixes_db({WINDOW_MONTHS: 30})
+
+        _, weights = widened_corpus(mixes_db, str, TODAY, PLAYLIST_SIZE)
+
+        self.assertEqual(30, len(weights))
+        self.assertEqual([WINDOW_MONTHS, WINDOW_MONTHS + WIDENING_MONTHS], getattr(mixes_db, 'asked'))

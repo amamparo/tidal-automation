@@ -13,7 +13,7 @@ from tidalapi.exceptions import ObjectNotFound
 from tqdm import tqdm
 
 from src.last_fm import LastFmTrack
-from src.mixes_db import MixesDb, MixTrack, Tracklist, searchable
+from src.mixes_db import WIDENING_MONTHS, WINDOW_MONTHS, MixesDb, MixTrack, Tracklist, searchable
 from src.tidal import Tidal
 
 HOTTEST_MIX_WEIGHT = 5.0
@@ -146,11 +146,25 @@ def mixable_selection(ranked: List[str], tempo_of: Callable[[str], Optional[int]
     return [track.track_id for track in selected]
 
 
-def rebuild(tidal: Tidal, mixes_db: MixesDb, *, query: str, playlist_id: str, playlist_size: int,
-            today: date, seconds_left: Callable[[], float]) -> None:
-    tracklists = mixes_db.get_tracklists(query)
+def widened_corpus(mixes_db: MixesDb, query_for: Callable[[int], str], today: date,
+                   playlist_size: int) -> Tuple[List[Tracklist], Dict[MixTrack, float]]:
+    months = WINDOW_MONTHS
+    tracklists = mixes_db.get_tracklists(query_for(months))
     weights = weigh_candidates(tracklists, today)
-    print(f'mixesdb: {len(tracklists)} tracklists, {len(weights)} candidates')
+    while len(weights) < playlist_size:
+        months += WIDENING_MONTHS
+        wider = mixes_db.get_tracklists(query_for(months))
+        widened = weigh_candidates(wider, today)
+        if len(widened) <= len(weights):
+            break
+        tracklists, weights = wider, widened
+    print(f'mixesdb: {len(tracklists)} tracklists over {months} months, {len(weights)} candidates')
+    return tracklists, weights
+
+
+def rebuild(tidal: Tidal, mixes_db: MixesDb, *, query_for: Callable[[int], str], playlist_id: str,
+            playlist_size: int, today: date, seconds_left: Callable[[], float]) -> None:
+    tracklists, weights = widened_corpus(mixes_db, query_for, today, playlist_size)
     if len(weights) < playlist_size:
         raise RuntimeError(
             f'only {len(weights)} candidates from {len(tracklists)} tracklists for {playlist_size} tracks')

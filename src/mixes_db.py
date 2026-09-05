@@ -13,7 +13,8 @@ USER_AGENT = 'tidal-automation/1.0 (+https://github.com/amamparo/tidal-automatio
 REQUEST_TIMEOUT = (5.0, 30.0)
 CRAWL_DELAY_SECONDS = 4
 TITLES_PER_REQUEST = 50
-WINDOW_YEARS = 1
+WINDOW_MONTHS = 12
+WIDENING_MONTHS = 6
 MINIMUM_TITLE_LENGTH = 3
 MID_YEAR_MONTH = 7
 MID_MONTH_DAY = 15
@@ -53,11 +54,13 @@ class Tracklist:
     tracks: List[MixTrack]
 
 
-def date_window(today: date) -> str:
-    earliest_year = today.year - WINDOW_YEARS
-    whole_years = [str(year) for year in range(today.year, earliest_year, -1)]
-    trailing_months = [f'{earliest_year}-{month:02d}' for month in reversed(range(today.month, 13))]
-    return ','.join([*whole_years, *trailing_months])
+def date_window(today: date, months: int) -> str:
+    year, month = today.year, today.month
+    window = []
+    for _ in range(months):
+        window.append(f'{year}-{month:02d}')
+        year, month = (year - 1, 12) if month == 1 else (year, month - 1)
+    return ','.join(window)
 
 
 def recorded_on(mix_title: str) -> Optional[date]:

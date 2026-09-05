@@ -3,7 +3,7 @@ from pathlib import Path
 from typing import List, Tuple
 from unittest import TestCase
 
-from src.mixes_db import WINDOW_YEARS, MixTrack, date_window, parse_tracklist, recorded_on
+from src.mixes_db import WINDOW_MONTHS, MixTrack, date_window, parse_tracklist, recorded_on
 from src.update_darkroom import search_query
 
 FIXTURES = Path(__file__).parent / 'fixtures' / 'mixes_db'
@@ -170,38 +170,29 @@ class TracklistParsing(TestCase):
 
 
 class DateWindow(TestCase):
-    def test_it_names_this_year_then_the_months_before_it(self) -> None:
-        self.assertEqual('2026,2025-12,2025-11,2025-10,2025-09', date_window(TODAY))
+    def test_it_lists_every_month_back_to_the_window_edge(self) -> None:
+        self.assertEqual('2026-09,2026-08,2026-07,2026-06', date_window(TODAY, 4))
 
-    def test_the_window_reaches_back_exactly_one_year(self) -> None:
-        earliest = date_window(TODAY).rsplit(',', maxsplit=1)[-1]
+    def test_it_rolls_over_the_year_boundary(self) -> None:
+        self.assertEqual('2027-02,2027-01,2026-12,2026-11', date_window(date(2027, 2, 8), 4))
 
-        self.assertEqual(f'{TODAY.year - WINDOW_YEARS}-{TODAY.month:02d}', earliest)
+    def test_it_asks_for_one_token_per_month(self) -> None:
+        for months in (1, 6, WINDOW_MONTHS, 36):
+            with self.subTest(months=months):
+                self.assertEqual(months, len(date_window(TODAY, months).split(',')))
 
-    def test_date_window_in_january(self) -> None:
-        earliest_year = 2027 - WINDOW_YEARS
-        tokens = date_window(date(2027, 1, 2)).split(',')
+    def test_every_month_is_distinct_and_descending(self) -> None:
+        tokens = date_window(TODAY, 30).split(',')
 
-        self.assertEqual(WINDOW_YEARS + 12, len(tokens))
-        self.assertEqual([str(2027 - back) for back in range(WINDOW_YEARS)], tokens[:WINDOW_YEARS])
-        self.assertEqual([f'{earliest_year}-{month:02d}' for month in reversed(range(1, 13))],
-                         tokens[WINDOW_YEARS:])
-
-    def test_date_window_is_whole_years_then_trailing_months(self) -> None:
-        for month in range(1, 13):
-            with self.subTest(month=month):
-                tokens = date_window(date(2027, month, 1)).split(',')
-
-                self.assertEqual([str(2027 - back) for back in range(WINDOW_YEARS)], tokens[:WINDOW_YEARS])
-                self.assertEqual([f'{2027 - WINDOW_YEARS}-{trailing:02d}'
-                                  for trailing in reversed(range(month, 13))], tokens[WINDOW_YEARS:])
+        self.assertEqual(len(tokens), len(set(tokens)))
+        self.assertEqual(sorted(tokens, reverse=True), tokens)
 
 
 class SearchQuery(TestCase):
     def test_it_intersects_both_styles_inside_the_date_window(self) -> None:
         self.assertEqual(
-            f'style:"Dub Techno" style:Minimal -tracklist:none date:{date_window(TODAY)}',
-            search_query(TODAY)
+            f'style:"Dub Techno" style:Minimal -tracklist:none date:{date_window(TODAY, WINDOW_MONTHS)}',
+            search_query(TODAY, WINDOW_MONTHS)
         )
 
 

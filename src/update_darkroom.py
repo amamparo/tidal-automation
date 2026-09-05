@@ -11,8 +11,8 @@ from src.playlist import rebuild
 from src.tidal import Tidal
 
 
-def search_query(today: date) -> str:
-    return f'style:"Dub Techno" style:Minimal -tracklist:none date:{date_window(today)}'
+def search_query(today: date, months: int) -> str:
+    return f'style:"Dub Techno" style:Minimal -tracklist:none date:{date_window(today, months)}'
 
 
 @inject
@@ -22,7 +22,7 @@ def main(environment: Environment, tidal: Tidal, mixes_db: MixesDb,
     rebuild(
         tidal,
         mixes_db,
-        query=search_query(today),
+        query_for=lambda months: search_query(today, months),
         playlist_id=environment.require('DARKROOM_PLAYLIST_ID'),
         playlist_size=int(environment.require('DARKROOM_SIZE')),
         today=today,
