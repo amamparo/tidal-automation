@@ -81,8 +81,9 @@ Green means `just check` is no worse than you found it. `tests/test_last_fm_matc
 that hit the live last.fm API — `test_matt_and_kim` and `test_not_various_artists_album` — and they
 reproduce on `main`. Anything beyond those is yours to fix before committing.
 
-Never commit on `main`: cut a kebab-case topic branch first. Push after every commit — an unpushed commit
-is not a durable revert point.
+This is a solo project, so committing and pushing straight to `main` is fine and is the default. Cut a
+kebab-case topic branch only when the work is genuinely exploratory and might be abandoned wholesale. Push
+after every commit either way — an unpushed commit is not a durable revert point.
 
 Match the existing log. Subjects are short, lowercase and imperative, with no scope prefix. Bodies are
 prose wrapped at about 76 characters, and they carry what the diff cannot: why the change is shaped the way
