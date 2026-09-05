@@ -13,7 +13,6 @@ USER_AGENT = 'tidal-automation/1.0 (+https://github.com/amamparo/tidal-automatio
 REQUEST_TIMEOUT = (5.0, 30.0)
 CRAWL_DELAY_SECONDS = 4
 TITLES_PER_REQUEST = 50
-MINIMUM_SEARCH_HITS = 10
 WINDOW_YEARS = 2
 MINIMUM_TITLE_LENGTH = 3
 MID_YEAR_MONTH = 7
@@ -139,9 +138,6 @@ class MixesDb:
             'action': 'query', 'list': 'search', 'srlimit': 'max', 'srsort': 'hotness_desc',
             'srsearch': query,
         })
-        total_hits = response['query']['searchinfo']['totalhits']
-        if total_hits < MINIMUM_SEARCH_HITS:
-            raise RuntimeError(f'only {total_hits} mixes matched {query}')
         return [result['title'] for result in response['query']['search']]
 
     def __get_wikitext(self, titles: List[str]) -> Dict[str, str]:

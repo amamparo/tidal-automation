@@ -17,9 +17,7 @@ from src.tidal import Tidal
 
 HOTTEST_MIX_WEIGHT = 5.0
 RECENCY_HALF_LIFE_DAYS = 180.0
-LOOKUP_BUDGET = 400
 MATCH_DEADLINE_SECONDS = 420
-MINIMUM_CANDIDATES = 150
 CONSECUTIVE_MISS_LIMIT = 40
 TITLE_QUALIFIER = re.compile(r'\s+[(\[].*$|\s+\d{1,3}$')
 
@@ -69,7 +67,7 @@ def find_tracks_on_tidal(tidal: Tidal, candidates: List[MixTrack], playlist_size
 
     with tqdm(total=playlist_size, desc='Building playlist') as progress:
         for candidate in candidates:
-            if len(track_ids) >= playlist_size or lookups >= LOOKUP_BUDGET or monotonic() > deadline:
+            if len(track_ids) >= playlist_size or monotonic() > deadline:
                 break
             lookups += 1
             found = find_track(tidal, candidate)
@@ -95,8 +93,9 @@ def rebuild(tidal: Tidal, mixes_db: MixesDb, *, query: str, playlist_id: str,
     tracklists = mixes_db.get_tracklists(query)
     weights = weigh_candidates(tracklists, today)
     print(f'mixesdb: {len(tracklists)} tracklists, {len(weights)} candidates')
-    if len(weights) < MINIMUM_CANDIDATES:
-        raise RuntimeError(f'only {len(weights)} candidates from {len(tracklists)} tracklists')
+    if len(weights) < playlist_size:
+        raise RuntimeError(
+            f'only {len(weights)} candidates from {len(tracklists)} tracklists for {playlist_size} tracks')
 
     track_ids = find_tracks_on_tidal(tidal, weighted_draw(weights, today.toordinal()), playlist_size)
     if not track_ids or len(track_ids) < playlist_size // 2:
