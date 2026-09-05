@@ -45,15 +45,16 @@ class LastFm:
         return [LastFmTrack(title=x['name'], artists={a['name'] for a in x['artists']}) for x in playlist]
 
     def top_tags(self, artist: str) -> Dict[str, float]:
-        cached = self.__tags.get(artist.lower())
-        if cached is not None:
-            return cached
-        tags = self.__fetch_tags(artist)
+        cache_key = artist.lower()
+        if cache_key not in self.__tags:
+            self.__tags[cache_key] = self.__fetch_tags(artist) or self.__fetch_lead_artist_tags(artist)
+        return self.__tags[cache_key]
+
+    def __fetch_lead_artist_tags(self, artist: str) -> Dict[str, float]:
         lead = CREDITED_GUEST.sub('', artist).strip()
-        if not tags and lead and lead.lower() != artist.lower():
-            tags = self.__fetch_tags(lead)
-        self.__tags[artist.lower()] = tags
-        return tags
+        if not lead or lead.lower() == artist.lower():
+            return {}
+        return self.__fetch_tags(lead)
 
     def __fetch_tags(self, artist: str) -> Dict[str, float]:
         self.__rate_limit()

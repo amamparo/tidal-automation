@@ -173,9 +173,9 @@ class DateWindow(TestCase):
     def test_date_window_in_january(self) -> None:
         tokens = date_window(date(2027, 1, 2)).split(',')
 
-        self.assertEqual(WINDOW_YEARS + 12, len(tokens))
-        self.assertEqual(['2027', '2026'], tokens[:WINDOW_YEARS])
-        self.assertEqual([f'2025-{month:02d}' for month in reversed(range(1, 13))], tokens[WINDOW_YEARS:])
+        self.assertEqual(14, len(tokens))
+        self.assertEqual(['2027', '2026'], tokens[:2])
+        self.assertEqual([f'2025-{month:02d}' for month in reversed(range(1, 13))], tokens[2:])
 
     def test_date_window_is_whole_years_then_trailing_months(self) -> None:
         for month in range(1, 13):

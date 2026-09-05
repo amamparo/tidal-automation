@@ -140,12 +140,17 @@ TECHNO_CORPUS = {
     'Grace Jones': {'disco': 1.0, 'pop': 0.9, 'new wave': 0.8},
 }
 
+CORPUS_TRACKS = {MixTrack(artist=name, title='x'): 1.0 for name in TECHNO_CORPUS}
+IN_GENRE = MixTrack(artist='Basic Channel', title='Q1.1')
+OFF_GENRE = MixTrack(artist='Grace Jones', title='Private Life')
+UNTAGGED = MixTrack(artist='Critical Digital', title="It's House")
+
 
 class GenreAffinity(TestCase):
     def test_the_profile_sums_tag_weights_across_artists(self) -> None:
         profile = genre_profile([{'techno': 1.0, 'dub': 0.5}, {'techno': 0.8, 'pop': 0.2}])
 
-        self.assertEqual({'techno': 1.8, 'dub': 0.5, 'pop': 0.2}, dict(profile))
+        self.assertEqual({'techno': 1.8, 'dub': 0.5, 'pop': 0.2}, profile)
 
     def test_an_artist_who_is_the_profile_scores_one(self) -> None:
         profile = genre_profile([{'techno': 1.0, 'minimal': 0.5}])
@@ -167,38 +172,28 @@ class GenreAffinity(TestCase):
 
 class GenreWeighting(TestCase):
     def test_an_off_genre_artist_is_weighed_down(self) -> None:
-        core = MixTrack(artist='Basic Channel', title='Q1.1')
-        outlier = MixTrack(artist='Grace Jones', title='Private Life')
-        corpus = {MixTrack(artist=name, title='x'): 1.0 for name in TECHNO_CORPUS}
+        weighed = weigh_by_genre(stub_last_fm(TECHNO_CORPUS), {**CORPUS_TRACKS, IN_GENRE: 1.0, OFF_GENRE: 1.0})
 
-        weighed = weigh_by_genre({**corpus, core: 1.0, outlier: 1.0}, stub_last_fm(TECHNO_CORPUS))
-
-        self.assertGreater(weighed[core], weighed[outlier])
+        self.assertGreater(weighed[IN_GENRE], weighed[OFF_GENRE])
 
     def test_the_pool_itself_is_what_sinks_the_outlier(self) -> None:
-        core = MixTrack(artist='Basic Channel', title='Q1.1')
-        outlier = MixTrack(artist='Grace Jones', title='Private Life')
-        corpus = {MixTrack(artist=name, title='x'): 1.0 for name in TECHNO_CORPUS}
+        alone = weigh_by_genre(stub_last_fm(TECHNO_CORPUS), {IN_GENRE: 1.0, OFF_GENRE: 1.0})
+        crowded = weigh_by_genre(stub_last_fm(TECHNO_CORPUS), {**CORPUS_TRACKS, IN_GENRE: 1.0, OFF_GENRE: 1.0})
 
-        alone = weigh_by_genre({core: 1.0, outlier: 1.0}, stub_last_fm(TECHNO_CORPUS))
-        crowded = weigh_by_genre({**corpus, core: 1.0, outlier: 1.0}, stub_last_fm(TECHNO_CORPUS))
-
-        self.assertLess(crowded[outlier] / crowded[core], alone[outlier] / alone[core])
+        self.assertLess(crowded[OFF_GENRE] / crowded[IN_GENRE], alone[OFF_GENRE] / alone[IN_GENRE])
 
     def test_an_artist_last_fm_does_not_know_is_treated_as_typical(self) -> None:
-        unknown = MixTrack(artist='Critical Digital', title="It's House")
-        outlier = MixTrack(artist='Grace Jones', title='Private Life')
-        known = {MixTrack(artist=name, title='x'): 1.0 for name in TECHNO_CORPUS}
+        pool = {**CORPUS_TRACKS, IN_GENRE: 1.0, UNTAGGED: 1.0, OFF_GENRE: 1.0}
 
-        weighed = weigh_by_genre({**known, unknown: 1.0, outlier: 1.0}, stub_last_fm(TECHNO_CORPUS))
+        weighed = weigh_by_genre(stub_last_fm(TECHNO_CORPUS), pool)
 
-        self.assertGreater(weighed[unknown], weighed[outlier])
-        self.assertLess(weighed[unknown], weighed[MixTrack(artist='Basic Channel', title='x')])
+        self.assertGreater(weighed[UNTAGGED], weighed[OFF_GENRE])
+        self.assertLess(weighed[UNTAGGED], weighed[IN_GENRE])
 
     def test_genre_weighting_preserves_the_relative_weight_of_one_artist(self) -> None:
         hotter = MixTrack(artist='Rrose', title='Hotter')
         colder = MixTrack(artist='Rrose', title='Colder')
 
-        weighed = weigh_by_genre({hotter: 2.0, colder: 1.0}, stub_last_fm(TECHNO_CORPUS))
+        weighed = weigh_by_genre(stub_last_fm(TECHNO_CORPUS), {hotter: 2.0, colder: 1.0})
 
         self.assertAlmostEqual(2.0, weighed[hotter] / weighed[colder])
