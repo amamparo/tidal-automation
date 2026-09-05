@@ -17,6 +17,7 @@ from src.playlist import (
     mix_weight,
     mixable_selection,
     mixable_with,
+    tightest_window,
     most_recommended,
     time_to_seed_again,
     weigh_candidates,
@@ -321,3 +322,28 @@ class MixableSelection(TestCase):
 
         self.assertEqual([], mixable_selection(['a'], untimed.get, 1))
         self.assertEqual([], mixable_selection([], untimed.get, 1))
+
+
+class TightestWindow(TestCase):
+    def test_it_is_the_deviation_that_just_admits_a_full_playlist(self) -> None:
+        self.assertEqual(5.0, tightest_window([5.0, 1.0, 2.0, 9.0], 3))
+
+    def test_a_pool_too_small_to_fill_falls_back_to_its_widest(self) -> None:
+        self.assertEqual(9.0, tightest_window([5.0, 1.0, 9.0], 100))
+
+    def test_an_empty_pool_has_no_window(self) -> None:
+        self.assertEqual(0.0, tightest_window([], 100))
+
+
+class TighteningTheSelection(TestCase):
+    def test_it_narrows_past_the_pitch_fader_when_the_pool_allows(self) -> None:
+        tempos: Dict[str, Optional[int]] = {'a': 126, 'b': 127, 'edge': 134, 'c': 125}
+
+        selected = mixable_selection(['a', 'b', 'edge', 'c'], tempos.get, 3)
+
+        self.assertEqual(['a', 'b', 'c'], selected)
+
+    def test_a_track_the_pitch_fader_rejects_is_never_admitted_by_the_window(self) -> None:
+        tempos: Dict[str, Optional[int]] = {'a': 126, 'b': 127, 'far': 200}
+
+        self.assertEqual(['a', 'b'], mixable_selection(['a', 'b', 'far'], tempos.get, 3))

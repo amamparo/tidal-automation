@@ -113,8 +113,18 @@ def centre_of_gravity(tempos: List[float]) -> float:
     return median([fold_to_octave(tempo, centre) for tempo in tempos])
 
 
+def tempo_deviation(tempo: float, centre: float) -> float:
+    return abs(fold_to_octave(tempo, centre) - centre)
+
+
 def mixable_with(tempo: float, centre: float) -> bool:
-    return abs(fold_to_octave(tempo, centre) - centre) <= centre * PITCH_FADER_RANGE
+    return tempo_deviation(tempo, centre) <= centre * PITCH_FADER_RANGE
+
+
+def tightest_window(deviations: List[float], playlist_size: int) -> float:
+    if len(deviations) < playlist_size:
+        return max(deviations, default=0.0)
+    return sorted(deviations)[playlist_size - 1]
 
 
 def mixable_selection(ranked: List[str], tempo_of: Callable[[str], Optional[int]],
@@ -124,8 +134,12 @@ def mixable_selection(ranked: List[str], tempo_of: Callable[[str], Optional[int]
     if not timed:
         return []
     centre = centre_of_gravity([tempo for _, tempo in timed[:playlist_size]])
-    mixable = [track_id for track_id, tempo in timed if mixable_with(tempo, centre)]
-    print(f'tempo: {len(timed)} of {len(ranked)} timed, {len(mixable)} mixable around {centre:.0f} bpm')
+    beatmatchable = [(track_id, tempo_deviation(tempo, centre))
+                     for track_id, tempo in timed if mixable_with(tempo, centre)]
+    window = tightest_window([deviation for _, deviation in beatmatchable], playlist_size)
+    mixable = [track_id for track_id, deviation in beatmatchable if deviation <= window]
+    print(f'tempo: {len(timed)} of {len(ranked)} timed, {len(beatmatchable)} beatmatchable, '
+          f'{len(mixable)} within {100 * window / centre:.1f}% of {centre:.0f} bpm')
     return mixable[:playlist_size]
 
 

@@ -67,8 +67,13 @@ PLAYLIST_PAGE_SIZE = 100
 PLAYLIST_WRITE_REQUESTS = 4
 PLAYLIST_READS_PER_WRITE = 2
 PLAYLIST_SETTLE_SECONDS = 1.0
+PLAYLIST_WRITE_ATTEMPTS = 5
 
 MISSING_ARTIST: JsonObj = {'id': None, 'name': None}
+
+
+def playlist_write_backoff(attempt: int) -> float:
+    return min(10.0, 2.0 ** attempt)
 
 
 class NullArtistTolerantSession(Session):
@@ -114,8 +119,9 @@ class Tidal:
 
     def seconds_to_set_playlist(self, playlist_size: int) -> float:
         pages = ceil(playlist_size / PLAYLIST_PAGE_SIZE)
-        requests = PLAYLIST_WRITE_REQUESTS + PLAYLIST_READS_PER_WRITE * pages
-        return requests * self.seconds_per_request + PLAYLIST_SETTLE_SECONDS
+        requests = PLAYLIST_WRITE_REQUESTS + PLAYLIST_WRITE_ATTEMPTS * PLAYLIST_READS_PER_WRITE * pages
+        retrying = sum(playlist_write_backoff(attempt) for attempt in range(PLAYLIST_WRITE_ATTEMPTS - 1))
+        return requests * self.seconds_per_request + PLAYLIST_SETTLE_SECONDS + retrying
 
     def __rate_limit(self) -> None:
         with self.__rate_limit_lock:
@@ -177,8 +183,7 @@ class Tidal:
 
     def set_playlist_tracks(self, playlist_id: str, track_ids: List[str]) -> None:
         wanted = set(track_ids)
-        max_attempts = 5
-        for attempt in range(max_attempts):
+        for attempt in range(PLAYLIST_WRITE_ATTEMPTS):
             playlist = cast(UserPlaylist, self.__call_api(lambda: self.__tidal.playlist(playlist_id)))
             existing = [str(track.id) for track in self.__playlist_tracks(playlist)]
             departing = [index for index, track_id in enumerate(existing) if track_id not in wanted]
@@ -188,9 +193,9 @@ class Tidal:
                 break
             except HTTPError as e:
                 precondition_failed = e.response is not None and e.response.status_code == 412
-                if not precondition_failed or attempt == max_attempts - 1:
+                if not precondition_failed or attempt == PLAYLIST_WRITE_ATTEMPTS - 1:
                     raise
-                time.sleep(min(10.0, 2 ** attempt))
+                time.sleep(playlist_write_backoff(attempt))
         time.sleep(PLAYLIST_SETTLE_SECONDS)
         playlist = cast(UserPlaylist, self.__call_api(lambda: self.__tidal.playlist(playlist_id)))
         surviving = {str(track.id) for track in self.__playlist_tracks(playlist)}
