@@ -1,8 +1,8 @@
 import re
-from collections import Counter
+from collections import defaultdict
 from dataclasses import dataclass
 from statistics import median
-from typing import Callable, List, Optional, Tuple
+from typing import Callable, Dict, List, Optional, Tuple
 
 from requests.exceptions import HTTPError  # type: ignore[import-untyped]
 from tidalapi import Track
@@ -53,8 +53,8 @@ def time_to_seed_again(tidal: Tidal, seconds_left: float, playlist_size: int) ->
 
 
 def gather_recommendations(tidal: Tidal, candidates: List[MixTrack], playlist_size: int,
-                           seconds_left: Callable[[], float]) -> Counter[str]:
-    recommended: Counter[str] = Counter()
+                           seconds_left: Callable[[], float]) -> Dict[str, float]:
+    recommended: Dict[str, float] = defaultdict(float)
     seeded = without_radio = 0
 
     with tqdm(total=len(candidates), desc='Reading radios') as progress:
@@ -70,12 +70,13 @@ def gather_recommendations(tidal: Tidal, candidates: List[MixTrack], playlist_si
                 without_radio += 1
                 continue
             seeded += 1
-            recommended.update(str(track.id) for track in radio)
+            for position, track in enumerate(radio):
+                recommended[str(track.id)] += 1.0 - position / len(radio)
     print(f'radios: {seeded} seeds, {without_radio} without a radio, {len(recommended)} tracks recommended')
     return recommended
 
 
-def most_recommended(recommended: Counter[str]) -> List[str]:
+def most_recommended(recommended: Dict[str, float]) -> List[str]:
     return sorted(recommended, key=lambda track_id: (-recommended[track_id], track_id))
 
 

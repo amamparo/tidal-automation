@@ -1,4 +1,3 @@
-from collections import Counter
 from dataclasses import dataclass
 from datetime import date
 from typing import Callable, Dict, List, Optional, cast
@@ -86,24 +85,24 @@ class RecordingMatching(TestCase):
 
 class MostRecommended(TestCase):
     def test_the_most_widely_recommended_track_leads(self) -> None:
-        recommended = Counter({'rare': 1, 'everywhere': 3, 'common': 2})
+        recommended = {'rare': 1.0, 'everywhere': 3.0, 'common': 2.0}
 
         self.assertEqual(['everywhere', 'common', 'rare'], most_recommended(recommended))
 
     def test_an_exact_tie_is_ordered_deterministically_rather_than_by_dict_order(self) -> None:
-        forwards = most_recommended(Counter({'b': 1, 'a': 1}))
-        backwards = most_recommended(Counter({'a': 1, 'b': 1}))
+        forwards = most_recommended({'b': 1.0, 'a': 1.0})
+        backwards = most_recommended({'a': 1.0, 'b': 1.0})
 
         self.assertEqual(forwards, backwards)
         self.assertEqual(['a', 'b'], forwards)
 
     def test_it_ranks_everything_so_the_anneal_can_backfill(self) -> None:
-        recommended = Counter({str(track_id): 1 for track_id in range(500)})
+        recommended = {str(track_id): 1.0 for track_id in range(500)}
 
         self.assertEqual(500, len(most_recommended(recommended)))
 
     def test_nothing_recommended_returns_nothing(self) -> None:
-        self.assertEqual([], most_recommended(Counter()))
+        self.assertEqual([], most_recommended({}))
 
 
 class GatheringRecommendations(TestCase):
@@ -114,17 +113,29 @@ class GatheringRecommendations(TestCase):
         recommended = gather_recommendations(tidal, [seed], PLAYLIST_SIZE, no_deadline)
 
         self.assertEqual({'10', '11', '12'}, set(recommended))
-        self.assertEqual(1, recommended['10'])
+        self.assertGreater(recommended['10'], recommended['11'])
+        self.assertGreater(recommended['11'], recommended['12'])
 
-    def test_a_track_two_seeds_recommend_is_counted_twice(self) -> None:
+    def test_two_seeds_recommending_one_track_outweigh_one(self) -> None:
         one = MixTrack(artist='Rrose', title='Triplicate')
         other = MixTrack(artist='Quantec', title='Wintermute')
         tidal = stub_tidal({'Triplicate': [10, 11], 'Wintermute': [10, 12]})
 
         recommended = gather_recommendations(tidal, [one, other], PLAYLIST_SIZE, no_deadline)
 
-        self.assertEqual(2, recommended['10'])
-        self.assertEqual(1, recommended['11'])
+        self.assertGreater(recommended['10'], recommended['11'])
+        self.assertGreater(recommended['10'], recommended['12'])
+
+    def test_a_radio_vouches_more_strongly_the_higher_it_returns_a_track(self) -> None:
+        leading = MixTrack(artist='Rrose', title='Triplicate')
+        trailing = MixTrack(artist='Quantec', title='Wintermute')
+        tidal = stub_tidal({'Triplicate': [10, 20, 30, 40], 'Wintermute': [40, 30, 20, 10]})
+
+        one_radio = gather_recommendations(tidal, [leading], PLAYLIST_SIZE, no_deadline)
+        both = gather_recommendations(tidal, [leading, trailing], PLAYLIST_SIZE, no_deadline)
+
+        self.assertGreater(one_radio['10'], one_radio['40'])
+        self.assertAlmostEqual(both['10'], both['40'])
 
     def test_a_seed_tidal_cannot_resolve_is_skipped_rather_than_failing(self) -> None:
         missing = MixTrack(artist='Nobody', title='Unfindable')
