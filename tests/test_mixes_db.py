@@ -175,7 +175,7 @@ class DateWindow(TestCase):
 
         self.assertEqual(13, len(tokens))
         self.assertEqual('2027', tokens[0])
-        self.assertEqual([f'2026-{month:02d}' for month in range(12, 0, -1)], tokens[1:])
+        self.assertEqual([f'2026-{month:02d}' for month in reversed(range(1, 13))], tokens[1:])
 
     def test_date_window_reaches_back_through_the_previous_year(self) -> None:
         for month in range(1, 13):
@@ -183,7 +183,7 @@ class DateWindow(TestCase):
                 tokens = date_window(date(2027, month, 1)).split(',')
 
                 self.assertEqual('2027', tokens[0])
-                self.assertEqual([f'2026-{trailing:02d}' for trailing in range(12, month - 1, -1)], tokens[1:])
+                self.assertEqual([f'2026-{trailing:02d}' for trailing in reversed(range(month, 13))], tokens[1:])
 
 
 class SearchQuery(TestCase):
@@ -194,7 +194,7 @@ class SearchQuery(TestCase):
         )
 
 
-class Candidates(TestCase):
+class TrackIdentity(TestCase):
     def test_spellings_that_normalise_the_same_are_one_track(self) -> None:
         canonical = MixTrack('Basic Channel', 'Q1.1')
         scruffy = MixTrack('basic  channel', 'q1.1')
@@ -212,22 +212,24 @@ class Candidates(TestCase):
         self.assertNotEqual(track, 'Basic Channel - Q1.1')
         self.assertEqual(3, len({track, MixTrack('Basic Channel', 'Q1.2'), MixTrack('Rhythm & Sound', 'Q1.1')}))
 
-    def test_recorded_on_reads_a_full_date(self) -> None:
+
+class RecordedOn(TestCase):
+    def test_reads_a_full_date(self) -> None:
         self.assertEqual(date(2025, 12, 21), recorded_on('2025-12-21 - Charis - The Sphère Chair'))
 
-    def test_recorded_on_reads_a_fuzzy_month(self) -> None:
+    def test_reads_a_fuzzy_month(self) -> None:
         self.assertEqual(date(2026, 7, 15), recorded_on('2026-0X - AliA @ Ilian Tape'))
 
-    def test_recorded_on_reads_a_bare_year(self) -> None:
+    def test_reads_a_bare_year(self) -> None:
         self.assertEqual(date(2026, 7, 15), recorded_on('2026 - Verschwender b2b Kwartz @ Tresor'))
 
-    def test_recorded_on_ignores_an_undated_title(self) -> None:
+    def test_ignores_an_undated_title(self) -> None:
         self.assertIsNone(recorded_on('Charis - The Sphère Chair'))
 
-    def test_recorded_on_keeps_the_real_day_of_month(self) -> None:
+    def test_keeps_the_real_day_of_month(self) -> None:
         self.assertEqual(date(2026, 7, 31), recorded_on('2026-07-31 - Lukas Sawicki - Off The Record'))
         self.assertEqual(date(2025, 11, 30), recorded_on('2025-11-30 - Yard One - The Alta Chair'))
 
-    def test_recorded_on_clamps_an_impossible_day_to_the_month_length(self) -> None:
+    def test_clamps_an_impossible_day_to_the_month_length(self) -> None:
         self.assertEqual(date(2025, 2, 28), recorded_on('2025-02-31 - Nonexistent Day'))
         self.assertEqual(date(2024, 2, 29), recorded_on('2024-02-31 - Leap Year'))

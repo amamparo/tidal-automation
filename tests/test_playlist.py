@@ -35,9 +35,9 @@ def mix(recorded_on: date, *tracks: MixTrack) -> Tracklist:
 
 class CandidateSelection(TestCase):
     def test_hotter_mixes_weigh_more(self) -> None:
-        self.assertGreater(mix_weight(0, 100, 0), mix_weight(99, 100, 0))
         hottest, coldest = mix_weight(0, 100, 0), mix_weight(99, 100, 0)
 
+        self.assertGreater(hottest, coldest)
         self.assertAlmostEqual(HOTTEST_MIX_WEIGHT ** 0.99, hottest / coldest)
 
     def test_an_undated_mix_dated_into_the_future_never_outweighs_a_fresh_one(self) -> None:
@@ -103,7 +103,6 @@ class CandidateSelection(TestCase):
         self.assertAlmostEqual(0.1, leaders[LIGHT] / MARGINAL_SEEDS, delta=0.03)
         self.assertAlmostEqual(0.2, leaders[MEDIUM] / MARGINAL_SEEDS, delta=0.03)
         self.assertAlmostEqual(0.7, leaders[HEAVY] / MARGINAL_SEEDS, delta=0.03)
-
 
 
 class RecordingMatching(TestCase):

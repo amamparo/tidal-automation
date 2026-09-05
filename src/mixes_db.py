@@ -1,6 +1,6 @@
 import re
 from calendar import monthrange
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from datetime import date
 from time import sleep
 from typing import Dict, List, Optional, Tuple
@@ -50,11 +50,11 @@ class MixTrack:
 @dataclass
 class Tracklist:
     recorded_on: date
-    tracks: List[MixTrack] = field(default_factory=list)
+    tracks: List[MixTrack]
 
 
 def date_window(today: date) -> str:
-    trailing_months = [f'{today.year - 1}-{month:02d}' for month in range(12, today.month - 1, -1)]
+    trailing_months = [f'{today.year - 1}-{month:02d}' for month in reversed(range(today.month, 13))]
     return ','.join([str(today.year), *trailing_months])
 
 
@@ -126,8 +126,7 @@ class MixesDb:
         tracklists = []
         for title in titles:
             recorded = recorded_on(title)
-            page = wikitext.get(title, '')
-            tracks = parse_tracklist(page)
+            tracks = parse_tracklist(wikitext.get(title, ''))
             if recorded and tracks:
                 tracklists.append(Tracklist(recorded_on=recorded, tracks=tracks))
         return tracklists
