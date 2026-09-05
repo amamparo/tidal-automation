@@ -3,6 +3,7 @@ import time
 import unicodedata
 from collections import deque
 from functools import partial
+from math import ceil
 from threading import Lock
 from typing import Callable, Deque, Dict, Iterable, List, Optional, Set, Tuple, TypeVar, cast
 
@@ -13,7 +14,7 @@ from requests.exceptions import (  # type: ignore[import-untyped]
     Timeout,
 )
 from tidalapi import Session, Track, Album, Artist, Playlist, UserPlaylist
-from tidalapi.exceptions import TooManyRequests
+from tidalapi.exceptions import ObjectNotFound, TooManyRequests
 from tidalapi.types import JsonObj
 
 from src.environment import Environment
@@ -63,6 +64,7 @@ MINIMUM_REMIXER_NAME_LENGTH = 3
 
 
 PLAYLIST_PAGE_SIZE = 100
+PLAYLIST_WRITE_REQUESTS = 4
 
 MISSING_ARTIST: JsonObj = {'id': None, 'name': None}
 
@@ -88,6 +90,14 @@ class Tidal:
         self.__max_requests_per_second = 2
         self.__request_times: Deque[float] = deque(maxlen=self.__max_requests_per_second)
         self.__rate_limit_lock = Lock()
+
+    @property
+    def seconds_per_request(self) -> float:
+        return 1.0 / self.__max_requests_per_second
+
+    def seconds_to_set_playlist(self, playlist_size: int) -> float:
+        pages = ceil(playlist_size / PLAYLIST_PAGE_SIZE)
+        return (PLAYLIST_WRITE_REQUESTS + 2 * pages) * self.seconds_per_request
 
     def __rate_limit(self) -> None:
         with self.__rate_limit_lock:
@@ -161,6 +171,16 @@ class Tidal:
         arriving = [track_id for track_id in track_ids if track_id not in surviving]
         if arriving:
             self.__call_api(lambda: playlist.add(arriving, limit=len(arriving)))
+
+    def track_radio(self, track: Track) -> List[Track]:
+        try:
+            return self.__call_api(track.get_track_radio)
+        except ObjectNotFound:
+            return []
+        except HTTPError as error:
+            if error.response is None or error.response.status_code != 404:
+                raise
+            return []
 
     def find_equivalent_track(self, last_fm_track: LastFmTrack, match_version: bool = False) -> Optional[Track]:
         cache_key = (last_fm_track, match_version)

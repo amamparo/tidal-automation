@@ -6,9 +6,7 @@ from typing import Callable, Optional
 from injector import inject, Injector
 
 from src.clock import deadline_clock
-from src.discogs import Discogs
 from src.environment import Environment
-from src.last_fm import LastFm
 from src.mixes_db import MixesDb, date_window
 from src.playlist import rebuild
 from src.tidal import Tidal
@@ -19,14 +17,12 @@ def search_query(today: date) -> str:
 
 
 @inject
-def main(environment: Environment, tidal: Tidal, mixes_db: MixesDb, last_fm: LastFm, discogs: Discogs,
+def main(environment: Environment, tidal: Tidal, mixes_db: MixesDb,
          *, seconds_left: Callable[[], float]) -> None:
     today = date.today()
     rebuild(
         tidal,
         mixes_db,
-        last_fm,
-        discogs,
         query=search_query(today),
         playlist_id=environment.require('DARKROOM_PLAYLIST_ID'),
         playlist_size=int(environment.require('DARKROOM_SIZE')),

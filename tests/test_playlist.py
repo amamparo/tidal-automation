@@ -1,30 +1,21 @@
 from collections import Counter
 from datetime import date, timedelta
-from math import sqrt
-from typing import Dict, cast
+from typing import Callable, Dict, List, cast
 from unittest import TestCase
 
-from src.discogs import Discogs
-from src.last_fm import LastFm
 from src.mixes_db import MixTrack, Tracklist
 from src.playlist import (
     HOTTEST_MIX_WEIGHT,
-    MATCH_DEADLINE_SECONDS,
     RECENCY_HALF_LIFE_DAYS,
-    genre_affinity,
-    affordable_lookups,
-    emphasise_rare_tags,
-    genre_fingerprint,
-    tag_rarity,
-    genre_profile,
-    typical_half,
+    gather_recommendations,
     is_same_recording,
     mix_weight,
-    weigh_by_genre,
+    most_recommended,
+    time_to_seed_again,
     weigh_candidates,
-    weight_per_artist,
     weighted_draw
 )
+from src.tidal import Tidal
 
 TODAY = date(2026, 9, 3)
 HALF_LIFE_DAYS = int(RECENCY_HALF_LIFE_DAYS)
@@ -41,6 +32,8 @@ HEAVY = MixTrack(artist='Rod Modell', title='Incense And Black Light')
 
 LEADER_SEEDS = 300
 MARGINAL_SEEDS = 10000
+
+PLAYLIST_SIZE = 100
 
 
 def mix(recorded_on: date, *tracks: MixTrack) -> Tracklist:
@@ -134,231 +127,122 @@ class RecordingMatching(TestCase):
         self.assertTrue(is_same_recording("You Don't Fool Me", "You Don't Fool Me 1"))
 
 
-def stub_last_fm(tags: Dict[str, Dict[str, float]]) -> LastFm:
-    class Stub:
-        def top_tags(self, artist: str) -> Dict[str, float]:
-            return tags.get(artist, {})
-
-    return cast(LastFm, Stub())
+class FoundTrack:
+    def __init__(self, track_id: int, name: str) -> None:
+        self.id = track_id
+        self.name = name
 
 
-def stub_discogs(styles_by_artist: Dict[str, Dict[str, float]], seconds_per_request: float = 0.0) -> Discogs:
+def stub_tidal(radios: Dict[str, List[int]], seconds_per_request: float = 0.0) -> Tidal:
     class Stub:
         def __init__(self) -> None:
             self.seconds_per_request = seconds_per_request
+            self.seeded: List[str] = []
 
-        def styles(self, artist: str) -> Dict[str, float]:
-            return styles_by_artist.get(artist, {})
+        def seconds_to_set_playlist(self, playlist_size: int) -> float:
+            return playlist_size * seconds_per_request
 
-    return cast(Discogs, Stub())
+        def find_equivalent_track(self, last_fm_track: object, **_: object) -> object:
+            title = cast(str, getattr(last_fm_track, 'title'))
+            return FoundTrack(hash(title), title) if title in radios else None
+
+        def track_radio(self, track: object) -> List[FoundTrack]:
+            name = cast(str, getattr(track, 'name'))
+            self.seeded.append(name)
+            return [FoundTrack(recommended, f'track {recommended}') for recommended in radios[name]]
+
+    return cast(Tidal, Stub())
 
 
 def no_deadline() -> float:
     return float('inf')
 
 
-def barely_enough_time() -> float:
-    return MATCH_DEADLINE_SECONDS + 5.0
+def clock_reading(*readings: float) -> Callable[[], float]:
+    remaining = iter(readings)
+    return lambda: next(remaining)
 
 
-TECHNO_CORPUS = {
-    'Basic Channel': {'dub techno': 1.0, 'minimal': 0.6},
-    'Rrose': {'techno': 1.0, 'minimal': 0.7},
-    'Quantec': {'dub techno': 1.0, 'ambient': 0.5},
-    'DeepChord': {'dub techno': 0.9, 'dub': 0.4},
-    'Efdemin': {'techno': 1.0, 'minimal techno': 0.5},
-    'Yagya': {'ambient techno': 0.9, 'minimal': 0.4},
-    'Vainqueur': {'techno': 0.8, 'dub': 0.5},
-    'Grace Jones': {'disco': 1.0, 'pop': 0.9, 'new wave': 0.8},
-}
+class MostRecommended(TestCase):
+    def test_the_most_widely_recommended_track_leads(self) -> None:
+        recommended = {'rare': [1.0], 'everywhere': [1.0, 1.0, 1.0], 'common': [1.0, 1.0]}
 
-CORPUS_TRACKS = {MixTrack(artist=name, title='x'): 1.0 for name in TECHNO_CORPUS}
-IN_GENRE = MixTrack(artist='Basic Channel', title='Q1.1')
-OFF_GENRE = MixTrack(artist='Grace Jones', title='Private Life')
-UNTAGGED = MixTrack(artist='Critical Digital', title="It's House")
+        self.assertEqual(['everywhere', 'common', 'rare'], most_recommended(recommended, 3))
 
+    def test_a_tie_on_seed_count_is_broken_by_the_weight_behind_it(self) -> None:
+        recommended = {'light': [1.0, 1.0], 'heavy': [5.0, 5.0]}
 
-class GenreAffinity(TestCase):
-    def test_the_profile_sums_tag_weights_across_artists(self) -> None:
-        profile = genre_profile([{'techno': 1.0, 'dub': 0.5}, {'techno': 0.8, 'pop': 0.2}])
+        self.assertEqual(['heavy', 'light'], most_recommended(recommended, 2))
 
-        self.assertEqual({'techno': 1.8, 'dub': 0.5, 'pop': 0.2}, profile)
+    def test_an_exact_tie_is_ordered_deterministically_rather_than_by_dict_order(self) -> None:
+        forwards = most_recommended({'b': [1.0], 'a': [1.0]}, 2)
+        backwards = most_recommended({'a': [1.0], 'b': [1.0]}, 2)
 
-    def test_an_artist_who_is_the_profile_scores_one(self) -> None:
-        profile = genre_profile([{'techno': 1.0, 'minimal': 0.5}])
+        self.assertEqual(forwards, backwards)
+        self.assertEqual(['a', 'b'], forwards)
 
-        self.assertAlmostEqual(1.0, genre_affinity({'techno': 1.0, 'minimal': 0.5}, profile))
+    def test_it_never_returns_more_than_the_playlist_holds(self) -> None:
+        recommended = {str(track_id): [1.0] for track_id in range(500)}
 
-    def test_sharing_no_tags_with_the_profile_scores_zero(self) -> None:
-        self.assertEqual(0.0, genre_affinity({'disco': 1.0}, {'techno': 1.0}))
+        self.assertEqual(PLAYLIST_SIZE, len(most_recommended(recommended, PLAYLIST_SIZE)))
 
-    def test_an_untagged_artist_scores_zero_rather_than_dividing_by_zero(self) -> None:
-        self.assertEqual(0.0, genre_affinity({}, {'techno': 1.0}))
-        self.assertEqual(0.0, genre_affinity({'techno': 1.0}, {}))
+    def test_nothing_recommended_returns_nothing(self) -> None:
+        self.assertEqual([], most_recommended({}, PLAYLIST_SIZE))
 
-    def test_the_profile_is_derived_from_the_corpus_not_declared(self) -> None:
-        profile = genre_profile(TECHNO_CORPUS.values())
 
-        self.assertEqual('dub techno', max(profile, key=lambda tag: profile[tag]))
+class GatheringRecommendations(TestCase):
+    def test_every_seed_that_resolves_votes_for_its_whole_radio(self) -> None:
+        seed = MixTrack(artist='Basic Channel', title='Q1.1')
+        tidal = stub_tidal({'Q1.1': [10, 11, 12]})
 
+        recommended = gather_recommendations(tidal, [seed], {seed: 2.0}, PLAYLIST_SIZE, no_deadline)
 
-class GenreFingerprint(TestCase):
-    def test_each_source_contributes_equally_whatever_its_scale(self) -> None:
-        fingerprint = genre_fingerprint({'techno': 100.0, 'dub techno': 50.0}, {'house': 2.0})
+        self.assertEqual({'10', '11', '12'}, set(recommended))
+        self.assertEqual([2.0], recommended['10'])
 
-        self.assertAlmostEqual(1.0, fingerprint['house'])
-        self.assertAlmostEqual(1.0, sqrt(fingerprint['techno'] ** 2 + fingerprint['dub techno'] ** 2))
+    def test_a_track_two_seeds_recommend_carries_both_their_weights(self) -> None:
+        hotter = MixTrack(artist='Rrose', title='Triplicate')
+        colder = MixTrack(artist='Quantec', title='Wintermute')
+        tidal = stub_tidal({'Triplicate': [10, 11], 'Wintermute': [10, 12]})
 
-    def test_the_sources_add_where_they_agree(self) -> None:
-        self.assertAlmostEqual(2.0, genre_fingerprint({'techno': 1.0}, {'techno': 5.0})['techno'])
+        recommended = gather_recommendations(
+            tidal, [hotter, colder], {hotter: 3.0, colder: 1.0}, PLAYLIST_SIZE, no_deadline)
 
-    def test_an_empty_source_is_skipped_rather_than_dividing_by_zero(self) -> None:
-        self.assertEqual({'techno': 1.0}, genre_fingerprint({'techno': 3.0}, {}))
-        self.assertEqual({}, genre_fingerprint({}, {}))
+        self.assertEqual([3.0, 1.0], recommended['10'])
+        self.assertEqual([3.0], recommended['11'])
 
+    def test_a_seed_tidal_cannot_resolve_is_skipped_rather_than_failing(self) -> None:
+        missing = MixTrack(artist='Nobody', title='Unfindable')
+        found = MixTrack(artist='Yagya', title='Rigning')
+        tidal = stub_tidal({'Rigning': [10]})
 
-class ArtistWeight(TestCase):
-    def test_weight_sums_over_an_artists_tracks(self) -> None:
-        per_artist = weight_per_artist({
-            MixTrack(artist='Rrose', title='a'): 1.0,
-            MixTrack(artist='Rrose', title='b'): 2.0,
-            MixTrack(artist='Quantec', title='c'): 5.0
-        })
+        recommended = gather_recommendations(
+            tidal, [missing, found], {missing: 1.0, found: 1.0}, PLAYLIST_SIZE, no_deadline)
 
-        self.assertEqual({'Rrose': 3.0, 'Quantec': 5.0}, per_artist)
+        self.assertEqual({'10'}, set(recommended))
 
+    def test_a_seed_with_an_empty_radio_contributes_nothing(self) -> None:
+        silent = MixTrack(artist='Obscurity', title='Untitled')
+        tidal = stub_tidal({'Untitled': []})
 
-class GenreWeighting(TestCase):
-    def test_an_off_genre_artist_is_weighed_down(self) -> None:
-        pool = {**CORPUS_TRACKS, IN_GENRE: 1.0, OFF_GENRE: 1.0}
+        self.assertEqual({}, gather_recommendations(tidal, [silent], {silent: 1.0}, PLAYLIST_SIZE, no_deadline))
 
-        weighed = weigh_by_genre(stub_last_fm(TECHNO_CORPUS), stub_discogs({}), pool, no_deadline)
+    def test_seeding_stops_when_the_time_left_is_needed_to_write_the_playlist(self) -> None:
+        seeds = [MixTrack(artist=f'Artist {n}', title=f'Track {n}') for n in range(5)]
+        tidal = stub_tidal({f'Track {n}': [n] for n in range(5)}, seconds_per_request=1.0)
 
-        self.assertGreater(weighed[IN_GENRE], weighed[OFF_GENRE])
+        gather_recommendations(tidal, seeds, {seed: 1.0 for seed in seeds}, 1, clock_reading(5.0, 4.0, 2.0))
 
-    def test_the_pool_itself_is_what_sinks_the_outlier(self) -> None:
-        pair = {IN_GENRE: 1.0, OFF_GENRE: 1.0}
+        self.assertEqual(['Track 0', 'Track 1'], getattr(tidal, 'seeded'))
 
-        alone = weigh_by_genre(stub_last_fm(TECHNO_CORPUS), stub_discogs({}), pair, no_deadline)
-        crowded = weigh_by_genre(stub_last_fm(TECHNO_CORPUS), stub_discogs({}),
-                                 {**CORPUS_TRACKS, **pair}, no_deadline)
 
-        self.assertLess(crowded[OFF_GENRE] / crowded[IN_GENRE], alone[OFF_GENRE] / alone[IN_GENRE])
+class SeedingBudget(TestCase):
+    def test_there_is_time_while_seeding_costs_less_than_the_slack(self) -> None:
+        tidal = stub_tidal({}, seconds_per_request=1.0)
 
-    def test_an_artist_last_fm_does_not_know_is_treated_as_typical(self) -> None:
-        pool = {**CORPUS_TRACKS, IN_GENRE: 1.0, UNTAGGED: 1.0, OFF_GENRE: 1.0}
+        self.assertTrue(time_to_seed_again(tidal, 100.0, 1))
+        self.assertTrue(time_to_seed_again(tidal, 3.0, 1))
+        self.assertFalse(time_to_seed_again(tidal, 2.0, 1))
 
-        weighed = weigh_by_genre(stub_last_fm(TECHNO_CORPUS), stub_discogs({}), pool, no_deadline)
-
-        self.assertGreater(weighed[UNTAGGED], weighed[OFF_GENRE])
-        self.assertLess(weighed[UNTAGGED], weighed[IN_GENRE])
-
-    def test_genre_weighting_preserves_the_relative_weight_of_one_artist(self) -> None:
-        hotter = MixTrack(artist='Rrose', title='Hotter')
-        colder = MixTrack(artist='Rrose', title='Colder')
-
-        weighed = weigh_by_genre(stub_last_fm(TECHNO_CORPUS), stub_discogs({}), {hotter: 2.0, colder: 1.0}, no_deadline)
-
-        self.assertAlmostEqual(2.0, weighed[hotter] / weighed[colder])
-
-
-class DiscogsEnrichment(TestCase):
-    def test_discogs_reaches_an_artist_last_fm_cannot(self) -> None:
-        pool = {**CORPUS_TRACKS, IN_GENRE: 1.0, UNTAGGED: 1.0}
-        off_genre_styles = stub_discogs({'Critical Digital': {'house': 3.0, 'disco': 2.0}})
-
-        blind = weigh_by_genre(stub_last_fm(TECHNO_CORPUS), stub_discogs({}), pool, no_deadline)
-        seeing = weigh_by_genre(stub_last_fm(TECHNO_CORPUS), off_genre_styles, pool, no_deadline)
-
-        self.assertLess(seeing[UNTAGGED] / seeing[IN_GENRE], blind[UNTAGGED] / blind[IN_GENRE])
-
-    def test_enrichment_stops_rather_than_eating_the_matching_deadline(self) -> None:
-        last_fm = stub_last_fm(TECHNO_CORPUS)
-        pool = {**CORPUS_TRACKS, UNTAGGED: 1.0}
-        styles = {'Critical Digital': {'house': 3.0}}
-
-        unasked = weigh_by_genre(last_fm, stub_discogs({}), pool, barely_enough_time)
-        affordable = weigh_by_genre(last_fm, stub_discogs(styles, seconds_per_request=1.0),
-                                    pool, barely_enough_time)
-        unaffordable = weigh_by_genre(last_fm, stub_discogs(styles, seconds_per_request=10.0),
-                                      pool, barely_enough_time)
-
-        self.assertNotAlmostEqual(unasked[UNTAGGED], affordable[UNTAGGED])
-        self.assertAlmostEqual(unasked[UNTAGGED], unaffordable[UNTAGGED])
-
-
-class AffordableLookups(TestCase):
-    def test_the_budget_caps_the_count(self) -> None:
-        self.assertEqual(50, affordable_lookups(500, MATCH_DEADLINE_SECONDS + 100.0, 2.0))
-
-    def test_it_never_promises_more_than_was_asked_for(self) -> None:
-        self.assertEqual(3, affordable_lookups(3, MATCH_DEADLINE_SECONDS + 1000.0, 2.0))
-
-    def test_no_budget_left_reaches_nobody(self) -> None:
-        self.assertEqual(0, affordable_lookups(500, MATCH_DEADLINE_SECONDS, 2.0))
-        self.assertEqual(0, affordable_lookups(500, MATCH_DEADLINE_SECONDS - 60.0, 2.0))
-
-    def test_a_free_request_is_unbounded_rather_than_dividing_by_zero(self) -> None:
-        self.assertEqual(500, affordable_lookups(500, 0.0, 0.0))
-
-
-class TagRarity(TestCase):
-    def test_a_tag_on_every_artist_carries_no_weight(self) -> None:
-        rarity = tag_rarity([{'electronic': 1.0, 'dub techno': 1.0},
-                             {'electronic': 1.0},
-                             {'electronic': 1.0}])
-
-        self.assertLess(rarity['electronic'], rarity['dub techno'])
-        self.assertEqual(0.0, rarity['electronic'])
-
-    def test_rarity_is_never_negative(self) -> None:
-        rarity = tag_rarity([{'ubiquitous': 1.0} for _ in range(20)] + [{'ubiquitous': 1.0, 'rare': 1.0}])
-
-        self.assertEqual(0.0, rarity['ubiquitous'])
-        self.assertGreater(rarity['rare'], 0.0)
-
-    def test_emphasising_rarity_reorders_an_artists_own_tags(self) -> None:
-        crowd = {f'Artist {n}': {'techno': 1.0} for n in range(8)}
-
-        distinctive = emphasise_rare_tags({'K-65': {'techno': 1.0, 'jungle': 0.5}, **crowd})
-
-        self.assertGreater(distinctive['K-65']['jungle'], distinctive['K-65']['techno'])
-
-    def test_an_untagged_artist_stays_untagged(self) -> None:
-        self.assertEqual({'Critical Digital': {}}, emphasise_rare_tags({'Critical Digital': {}}))
-
-
-class TypicalHalf(TestCase):
-    def test_the_profile_is_drawn_from_the_typical_half(self) -> None:
-        core = [{'dub techno': 1.0, 'minimal': 1.0} for _ in range(4)]
-        outliers = [{'disco': 1.0}, {'jungle': 1.0}]
-
-        profile = genre_profile(typical_half(core + outliers))
-
-        self.assertNotIn('disco', profile)
-        self.assertNotIn('jungle', profile)
-        self.assertIn('dub techno', profile)
-
-    def test_an_outlier_scores_lower_against_the_typical_half_than_against_everything(self) -> None:
-        everything = [{'dub techno': 1.0} for _ in range(4)] + [{'disco': 1.0}, {'disco': 1.0}]
-        outlier = {'disco': 1.0}
-
-        self.assertLess(genre_affinity(outlier, genre_profile(typical_half(everything))),
-                        genre_affinity(outlier, genre_profile(everything)))
-
-    def test_nothing_worth_scoring_leaves_every_fingerprint_typical(self) -> None:
-        self.assertEqual([], typical_half([]))
-        self.assertEqual([{}, {}], typical_half([{}, {}]))
-
-
-class ZeroWeightCandidates(TestCase):
-    def test_a_candidate_sharing_nothing_with_the_corpus_is_never_drawn(self) -> None:
-        kept = MixTrack(artist='Rrose', title='kept')
-        dropped = MixTrack(artist='Grace Jones', title='dropped')
-
-        drawn = weighted_draw({kept: 1.0, dropped: 0.0}, 7)
-
-        self.assertEqual([kept], drawn)
-
-    def test_an_all_zero_pool_draws_nobody_rather_than_dividing_by_zero(self) -> None:
-        self.assertEqual([], weighted_draw({MixTrack(artist='a', title='b'): 0.0}, 7))
+    def test_a_free_request_always_leaves_time(self) -> None:
+        self.assertTrue(time_to_seed_again(stub_tidal({}), 0.0, PLAYLIST_SIZE))
