@@ -10,14 +10,14 @@ from src.playlist import (
     HOTTEST_MIX_WEIGHT,
     PITCH_FADER_RANGE,
     RECENCY_HALF_LIFE_DAYS,
+    centre_of_gravity,
+    fold_to_octave,
     gather_recommendations,
     is_same_recording,
     mix_weight,
-    most_recommended,
-    centre_of_gravity,
-    fold_to_octave,
     mixable_selection,
     mixable_with,
+    most_recommended,
     time_to_seed_again,
     weigh_candidates,
     weighted_draw
@@ -41,6 +41,7 @@ LEADER_DRAWS = 300
 MARGINAL_DRAWS = 10000
 
 PLAYLIST_SIZE = 100
+CENTRE_BPM = 126.0
 
 
 def mix(recorded_on: date, *tracks: MixTrack) -> Tracklist:
@@ -259,27 +260,28 @@ class SeedingBudget(TestCase):
 
 class MixableTempo(TestCase):
     def test_half_and_double_time_are_the_same_tempo_to_a_dj(self) -> None:
-        self.assertAlmostEqual(126.0, fold_to_octave(63.0, 126.0))
-        self.assertAlmostEqual(126.0, fold_to_octave(252.0, 126.0))
-        self.assertAlmostEqual(126.0, fold_to_octave(126.0, 126.0))
+        self.assertAlmostEqual(CENTRE_BPM, fold_to_octave(63.0, CENTRE_BPM))
+        self.assertAlmostEqual(CENTRE_BPM, fold_to_octave(252.0, CENTRE_BPM))
+        self.assertAlmostEqual(CENTRE_BPM, fold_to_octave(CENTRE_BPM, CENTRE_BPM))
 
     def test_a_neighbouring_tempo_is_left_alone(self) -> None:
-        self.assertAlmostEqual(140.0, fold_to_octave(140.0, 126.0))
-        self.assertAlmostEqual(101.0, fold_to_octave(101.0, 126.0))
+        self.assertAlmostEqual(140.0, fold_to_octave(140.0, CENTRE_BPM))
+        self.assertAlmostEqual(101.0, fold_to_octave(101.0, CENTRE_BPM))
 
     def test_the_centre_is_the_median_after_folding(self) -> None:
-        self.assertAlmostEqual(126.0, centre_of_gravity([126.0, 63.0, 252.0]))
+        self.assertAlmostEqual(CENTRE_BPM, centre_of_gravity([CENTRE_BPM, 63.0, 252.0]))
 
     def test_the_window_is_a_turntables_pitch_range(self) -> None:
-        just_inside, just_outside = PITCH_FADER_RANGE - 0.01, PITCH_FADER_RANGE + 0.01
+        window = CENTRE_BPM * PITCH_FADER_RANGE
+        inside, outside = window * 0.99, window * 1.01
 
-        self.assertTrue(mixable_with(126.0 * (1 + just_inside), 126.0))
-        self.assertTrue(mixable_with(126.0 * (1 - just_inside), 126.0))
-        self.assertFalse(mixable_with(126.0 * (1 + just_outside), 126.0))
-        self.assertFalse(mixable_with(126.0 * (1 - just_outside), 126.0))
+        self.assertTrue(mixable_with(CENTRE_BPM + inside, CENTRE_BPM))
+        self.assertTrue(mixable_with(CENTRE_BPM - inside, CENTRE_BPM))
+        self.assertFalse(mixable_with(CENTRE_BPM + outside, CENTRE_BPM))
+        self.assertFalse(mixable_with(CENTRE_BPM - outside, CENTRE_BPM))
 
     def test_a_half_time_track_is_mixable_with_the_centre(self) -> None:
-        self.assertTrue(mixable_with(63.0, 126.0))
+        self.assertTrue(mixable_with(63.0, CENTRE_BPM))
 
 
 class MixableSelection(TestCase):

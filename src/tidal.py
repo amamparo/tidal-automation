@@ -5,7 +5,7 @@ from collections import deque
 from functools import partial
 from math import ceil
 from threading import Lock
-from typing import Any, Callable, Deque, Dict, Iterable, List, Optional, Set, Tuple, TypeVar, cast
+from typing import Callable, Deque, Dict, Iterable, List, Optional, Set, Tuple, TypeVar, cast
 
 from injector import inject, singleton
 from requests.exceptions import (  # type: ignore[import-untyped]
@@ -72,8 +72,8 @@ MISSING_ARTIST: JsonObj = {'id': None, 'name': None}
 
 
 class NullArtistTolerantSession(Session):
-    def __init__(self, *args: Any, **kwargs: Any) -> None:
-        super().__init__(*args, **kwargs)
+    def __init__(self) -> None:
+        super().__init__()
         self.beats_per_minute: Dict[int, Optional[int]] = {}
 
     def parse_artist(self, obj: JsonObj) -> Artist:
@@ -107,10 +107,10 @@ class Tidal:
 
     @property
     def seconds_per_request(self) -> float:
-        rate_limited = 1.0 / self.__max_requests_per_second
-        if not self.__requests_made:
-            return rate_limited
-        return max(rate_limited, self.__seconds_in_requests / self.__requests_made)
+        rate_limit_floor = 1.0 / self.__max_requests_per_second
+        if self.__requests_made == 0:
+            return rate_limit_floor
+        return max(rate_limit_floor, self.__seconds_in_requests / self.__requests_made)
 
     def seconds_to_set_playlist(self, playlist_size: int) -> float:
         pages = ceil(playlist_size / PLAYLIST_PAGE_SIZE)
@@ -130,29 +130,32 @@ class Tidal:
             self.__request_times.append(now)
 
     def __call_api(self, fn: Callable[[], T]) -> T:
-        max_attempts = 10
         started = time.monotonic()
         try:
-            for attempt in range(max_attempts):
-                self.__rate_limit()
-                try:
-                    return fn()
-                except TooManyRequests as e:
-                    if attempt == max_attempts - 1:
-                        raise
-                    if e.retry_after > 0:
-                        sleep_time = float(e.retry_after) + 1.0
-                    else:
-                        sleep_time = min(60.0, 2 ** (attempt + 1))
-                    time.sleep(sleep_time)
-                except (RequestsConnectionError, Timeout):
-                    if attempt == max_attempts - 1:
-                        raise
-                    time.sleep(min(30.0, 2 ** attempt))
-            raise RuntimeError('unreachable')
+            return self.__call_with_retries(fn)
         finally:
             self.__requests_made += 1
             self.__seconds_in_requests += time.monotonic() - started
+
+    def __call_with_retries(self, fn: Callable[[], T]) -> T:
+        max_attempts = 10
+        for attempt in range(max_attempts):
+            self.__rate_limit()
+            try:
+                return fn()
+            except TooManyRequests as e:
+                if attempt == max_attempts - 1:
+                    raise
+                if e.retry_after > 0:
+                    sleep_time = float(e.retry_after) + 1.0
+                else:
+                    sleep_time = min(60.0, 2 ** (attempt + 1))
+                time.sleep(sleep_time)
+            except (RequestsConnectionError, Timeout):
+                if attempt == max_attempts - 1:
+                    raise
+                time.sleep(min(30.0, 2 ** attempt))
+        raise RuntimeError('unreachable')
 
     def get_mix_tracks(self, mix_id: str) -> Set[Track]:
         items = self.__call_api(lambda: self.__tidal.mix(mix_id).items())
@@ -188,7 +191,7 @@ class Tidal:
                 if not precondition_failed or attempt == max_attempts - 1:
                     raise
                 time.sleep(min(10.0, 2 ** attempt))
-        time.sleep(1)
+        time.sleep(PLAYLIST_SETTLE_SECONDS)
         playlist = cast(UserPlaylist, self.__call_api(lambda: self.__tidal.playlist(playlist_id)))
         surviving = {str(track.id) for track in self.__playlist_tracks(playlist)}
         arriving = [track_id for track_id in track_ids if track_id not in surviving]

@@ -19,7 +19,8 @@ HOTTEST_MIX_WEIGHT = 5.0
 RECENCY_HALF_LIFE_DAYS = 180.0
 SEED_REQUESTS = 2
 PITCH_FADER_RANGE = 0.08
-OCTAVE = sqrt(2.0)
+OCTAVE = 2.0
+HALF_OCTAVE = sqrt(OCTAVE)
 TITLE_QUALIFIER = re.compile(r'\s+[(\[].*$|\s+\d{1,3}$')
 
 
@@ -100,10 +101,10 @@ def most_recommended(recommended: Dict[str, List[float]]) -> List[str]:
 
 
 def fold_to_octave(tempo: float, centre: float) -> float:
-    while tempo < centre / OCTAVE:
-        tempo *= 2.0
-    while tempo > centre * OCTAVE:
-        tempo /= 2.0
+    while tempo < centre / HALF_OCTAVE:
+        tempo *= OCTAVE
+    while tempo > centre * HALF_OCTAVE:
+        tempo /= OCTAVE
     return tempo
 
 
@@ -123,9 +124,9 @@ def mixable_selection(ranked: List[str], tempo_of: Callable[[str], Optional[int]
     if not timed:
         return []
     centre = centre_of_gravity([tempo for _, tempo in timed[:playlist_size]])
-    selected = [track_id for track_id, tempo in timed if mixable_with(tempo, centre)]
-    print(f'tempo: {len(timed)} of {len(ranked)} timed, {len(selected)} mixable around {centre:.0f} bpm')
-    return selected[:playlist_size]
+    mixable = [track_id for track_id, tempo in timed if mixable_with(tempo, centre)]
+    print(f'tempo: {len(timed)} of {len(ranked)} timed, {len(mixable)} mixable around {centre:.0f} bpm')
+    return mixable[:playlist_size]
 
 
 def rebuild(tidal: Tidal, mixes_db: MixesDb, *, query: str, playlist_id: str, playlist_size: int,
