@@ -7,10 +7,34 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 This is a Tidal music automation service that rebuilds Tidal playlists on a daily schedule. It deploys as AWS Lambda functions via AWS CDK:
 
 * `src/update_daily_blend.py` — a "Daily Blend" from Tidal mixes plus last.fm recommendations.
-* `src/update_darkroom.py` — a "Darkroom" playlist from MixesDB mix tracklists.
+* `src/update_darkroom.py` — a "Darkroom" playlist built from Tidal radio consensus over MixesDB mix
+  tracklists.
 
-`src/playlist.py` holds the weighted-lottery selection and Tidal resolution; `update_darkroom.py` is a
-thin wrapper supplying a MixesDB search query, a playlist id and a size.
+`src/playlist.py` holds that pipeline; `update_darkroom.py` is a thin wrapper supplying a MixesDB search
+query, a playlist id and a size.
+
+Darkroom works by consensus rather than by scoring tracks. It widens a MixesDB date window from 12 months
+until the corpus holds at least `playlist_size` distinct candidates, reads a Tidal radio for every
+candidate, and ranks the returned tracks by **how many independent radios returned each one**. Tracks with
+no Tidal bpm are dropped, and the top of that ranking is then annealed to a tempo span: while the widest
+tempo ratio in the selection exceeds the ±8% a Technics pitch fader can bridge, the track furthest from the
+selection's median is dropped — least-recommended first on ties — and replaced by the next most-recommended
+track that keeps the span inside the fader.
+
+Almost none of the final playlist comes from the mixes themselves; the mix tracklists are the *seeds*, and
+what lands in the playlist is the material Tidal's radios agree is adjacent to them. Genre scoring was
+tried and removed: weighting artists by last.fm/Discogs genre affinity actively promoted an out-of-place
+Luomo track (1.31x the median) while demoting Vladislav Delay (0.86x) — the same person — because a
+corpus-centroid profile rewards the genre's generic middle and punishes its distinctive edges. Track-level
+metadata cannot separate these either: bpm, musical key, popularity, duration and replayGain were each
+measured and each put the complaint dead centre or backwards. `src/discogs.py` was deleted with the genre
+weighting; `src/last_fm.py` stays because the Daily Blend uses it and `LastFmTrack` is Tidal's search
+interface.
+
+A second hop — taking radios of the radio results — was measured and rejected: 95% of what it returns is
+already in the first-hop pool, and none of the genuinely new tracks came close to the ranking cutoff.
+Radios are roughly symmetric, so the best-corroborated tracks are exactly the ones whose neighbourhoods are
+already mapped.
 
 Both run on staggered 15-minute intervals from 10:00 UTC, which is 04:00 Chicago in winter and
 05:00 in summer — the latest UTC hour that never starts a job before 4AM local.
@@ -22,12 +46,18 @@ MediaWiki JSON API at `https://www.mixesdb.com/w/api.php`, which honours MixesDB
 (`style:`, `date:`, `hasplayer`, `-tracklist:none`). `srsort=hotness_desc` works; bare `hotness` does not.
 There is **no OR syntax between terms** — `|`, `,` and `OR` all behave as AND. The Darkroom playlist uses
 that deliberately: `style:"Dub Techno" style:Minimal` is the *intersection* of the two tags, which is what
-turns a 136-mix and a 152-mix corpus into the 15 mixes carrying both. A genuine union would still mean one
+turns a 136-mix and a 152-mix corpus into the handful of mixes carrying both. A genuine union would still mean one
 request per style merged client-side; that was tried and reverted. **Inside a single keyword the comma is a
 value list, not AND**: `date:2026,2025-12,2025-11` matches a mix from any one of them, and token order does
 not change the result set. **Negation works**: a leading `-` on `style:` excludes server-side, verified 0 leaks over 500 results.
 `srlimit=max` caps anonymous results at 500, so a query with more hits is silently truncated to the 500
-hottest.
+hottest. That cap is why the date window stops widening once a wider window returns no more candidates
+than the last: past 500 results a wider window returns the same 500 hottest mixes.
+
+Mix counts per window are steeply non-linear and the near end is the sparse end, because MixesDB
+categorises and tracklists mixes well after they are posted. Measured on 2026-09-05: 3 months returned 1
+mix, 6 returned 3, 9 returned 9, 12 returned 15, 18 returned 38, 24 returned 48, 36 returned 70. A fixed
+lookback is therefore the wrong control — the window widens until the corpus is big enough instead.
 
 The `MixesDB:Explorer` pages are server-rendered but only ever emit ~25 rows; the rest loads via JS. Every
 Explorer query so far has an equivalent `list=search` query that is a strict superset, so use the API. The
