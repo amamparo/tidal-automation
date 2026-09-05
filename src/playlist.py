@@ -4,7 +4,7 @@ from datetime import date
 from math import log
 from random import Random
 from time import monotonic
-from typing import Dict, List, Optional, Set
+from typing import Dict, List, Optional
 
 from requests.exceptions import HTTPError  # type: ignore[import-untyped]
 from tidalapi import Track
@@ -17,27 +17,23 @@ from src.tidal import Tidal
 
 HOTTEST_MIX_WEIGHT = 5.0
 RECENCY_HALF_LIFE_DAYS = 180.0
-DISCOURAGED_STYLES = frozenset({'Ambient', 'IDM'})
-DISCOURAGED_STYLE_PENALTY = 0.1
 LOOKUP_BUDGET = 400
 MATCH_DEADLINE_SECONDS = 420
-MINIMUM_CANDIDATES = 400
+MINIMUM_CANDIDATES = 150
 CONSECUTIVE_MISS_LIMIT = 40
 TITLE_QUALIFIER = re.compile(r'\s+[(\[].*$|\s+\d{1,3}$')
 
 
-def mix_weight(rank: int, mix_count: int, age_days: int, categories: Set[str]) -> float:
+def mix_weight(rank: int, mix_count: int, age_days: int) -> float:
     hotness = HOTTEST_MIX_WEIGHT ** (1 - rank / mix_count)
     recency = RECENCY_HALF_LIFE_DAYS / (RECENCY_HALF_LIFE_DAYS + max(age_days, 0))
-    penalty = DISCOURAGED_STYLE_PENALTY ** len(DISCOURAGED_STYLES & categories)
-    return hotness * recency * penalty
+    return hotness * recency
 
 
 def weigh_candidates(tracklists: List[Tracklist], today: date) -> Dict[MixTrack, float]:
     weights: Dict[MixTrack, float] = defaultdict(float)
     for rank, tracklist in enumerate(tracklists):
-        weight = mix_weight(rank, len(tracklists), (today - tracklist.recorded_on).days,
-                            tracklist.categories)
+        weight = mix_weight(rank, len(tracklists), (today - tracklist.recorded_on).days)
         for track in tracklist.tracks:
             weights[track] += weight
     return weights

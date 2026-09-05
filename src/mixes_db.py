@@ -3,7 +3,7 @@ from calendar import monthrange
 from dataclasses import dataclass, field
 from datetime import date
 from time import sleep
-from typing import Dict, List, Optional, Set, Tuple
+from typing import Dict, List, Optional, Tuple
 
 import requests  # type: ignore[import-untyped]
 from injector import singleton
@@ -13,7 +13,7 @@ USER_AGENT = 'tidal-automation/1.0 (+https://github.com/amamparo/tidal-automatio
 REQUEST_TIMEOUT = (5.0, 30.0)
 CRAWL_DELAY_SECONDS = 4
 TITLES_PER_REQUEST = 50
-MINIMUM_SEARCH_HITS = 40
+MINIMUM_SEARCH_HITS = 10
 MINIMUM_TITLE_LENGTH = 3
 MID_YEAR_MONTH = 7
 MID_MONTH_DAY = 15
@@ -26,7 +26,6 @@ TRAILING_LABEL = re.compile(r'\s*\[[^\[\]]*\]\s*$')
 BRACKETED_ARTIST = re.compile(r'^[\[(](.*)\]$')
 FILLER = re.compile(r'^(?:[?.\-…]+|intro|outro|interview|id)$', re.IGNORECASE)
 TITLE_DATE = re.compile(r'^(\d{4})(?:-([\dX?]{2}))?(?:-([\dX?]{2}))?')
-CATEGORY = re.compile(r'\[\[Category:([^\]|]+)')
 
 
 def searchable(text: str) -> str:
@@ -52,16 +51,11 @@ class MixTrack:
 class Tracklist:
     recorded_on: date
     tracks: List[MixTrack] = field(default_factory=list)
-    categories: Set[str] = field(default_factory=set)
 
 
 def date_window(today: date) -> str:
-    trailing_months = [f'{today.year - 1}-{month:02d}' for month in range(today.month + 1, 13)]
+    trailing_months = [f'{today.year - 1}-{month:02d}' for month in range(12, today.month - 1, -1)]
     return ','.join([str(today.year), *trailing_months])
-
-
-def categories_of(wikitext: str) -> Set[str]:
-    return {name.strip() for name in CATEGORY.findall(wikitext)}
 
 
 def recorded_on(mix_title: str) -> Optional[date]:
@@ -135,7 +129,7 @@ class MixesDb:
             page = wikitext.get(title, '')
             tracks = parse_tracklist(page)
             if recorded and tracks:
-                tracklists.append(Tracklist(recorded_on=recorded, tracks=tracks, categories=categories_of(page)))
+                tracklists.append(Tracklist(recorded_on=recorded, tracks=tracks))
         return tracklists
 
     def __search_titles(self, query: str) -> List[str]:

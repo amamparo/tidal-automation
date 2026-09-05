@@ -1,11 +1,9 @@
 from collections import Counter
 from datetime import date, timedelta
-from typing import Optional, Set
 from unittest import TestCase
 
 from src.mixes_db import MixTrack, Tracklist
 from src.playlist import (
-    DISCOURAGED_STYLE_PENALTY,
     HOTTEST_MIX_WEIGHT,
     RECENCY_HALF_LIFE_DAYS,
     is_same_recording,
@@ -15,7 +13,6 @@ from src.playlist import (
 )
 
 TODAY = date(2026, 9, 3)
-NO_STYLES: Set[str] = set()
 HALF_LIFE_DAYS = int(RECENCY_HALF_LIFE_DAYS)
 
 SHARED = MixTrack(artist='Yagya', title='Sleepygirl 1')
@@ -32,27 +29,23 @@ LEADER_SEEDS = 300
 MARGINAL_SEEDS = 10000
 
 
-def unstyled_weight(rank: int, mix_count: int, age_days: int) -> float:
-    return mix_weight(rank, mix_count, age_days, NO_STYLES)
-
-
-def mix(recorded_on: date, *tracks: MixTrack, categories: Optional[Set[str]] = None) -> Tracklist:
-    return Tracklist(recorded_on=recorded_on, tracks=list(tracks), categories=set(categories or ()))
+def mix(recorded_on: date, *tracks: MixTrack) -> Tracklist:
+    return Tracklist(recorded_on=recorded_on, tracks=list(tracks))
 
 
 class CandidateSelection(TestCase):
     def test_hotter_mixes_weigh_more(self) -> None:
-        self.assertGreater(unstyled_weight(0, 100, 0), unstyled_weight(99, 100, 0))
-        hottest, coldest = unstyled_weight(0, 100, 0), unstyled_weight(99, 100, 0)
+        self.assertGreater(mix_weight(0, 100, 0), mix_weight(99, 100, 0))
+        hottest, coldest = mix_weight(0, 100, 0), mix_weight(99, 100, 0)
 
         self.assertAlmostEqual(HOTTEST_MIX_WEIGHT ** 0.99, hottest / coldest)
 
     def test_an_undated_mix_dated_into_the_future_never_outweighs_a_fresh_one(self) -> None:
-        fresh = unstyled_weight(0, 122, 0)
+        fresh = mix_weight(0, 122, 0)
 
-        self.assertEqual(fresh, unstyled_weight(0, 122, -1))
-        self.assertEqual(fresh, unstyled_weight(0, 122, -HALF_LIFE_DAYS))
-        self.assertEqual(fresh, unstyled_weight(0, 122, -365))
+        self.assertEqual(fresh, mix_weight(0, 122, -1))
+        self.assertEqual(fresh, mix_weight(0, 122, -HALF_LIFE_DAYS))
+        self.assertEqual(fresh, mix_weight(0, 122, -365))
 
     def test_weigh_candidates_handles_a_mix_recorded_in_the_future(self) -> None:
         undated = date(TODAY.year, 7, 15)
@@ -62,8 +55,8 @@ class CandidateSelection(TestCase):
         self.assertTrue(all(weight > 0 for weight in weights.values()))
 
     def test_older_mixes_weigh_less(self) -> None:
-        self.assertAlmostEqual(unstyled_weight(3, 10, 0) / 2, unstyled_weight(3, 10, HALF_LIFE_DAYS))
-        self.assertGreater(unstyled_weight(3, 10, 0), unstyled_weight(3, 10, 1))
+        self.assertAlmostEqual(mix_weight(3, 10, 0) / 2, mix_weight(3, 10, HALF_LIFE_DAYS))
+        self.assertGreater(mix_weight(3, 10, 0), mix_weight(3, 10, 1))
 
     def test_weights_sum_across_mixes(self) -> None:
         weights = weigh_candidates([
@@ -111,26 +104,6 @@ class CandidateSelection(TestCase):
         self.assertAlmostEqual(0.2, leaders[MEDIUM] / MARGINAL_SEEDS, delta=0.03)
         self.assertAlmostEqual(0.7, leaders[HEAVY] / MARGINAL_SEEDS, delta=0.03)
 
-    def test_discouraged_styles_are_penalised_hardest_in_combination(self) -> None:
-        plain = mix_weight(0, 10, 0, NO_STYLES)
-
-        self.assertAlmostEqual(plain * DISCOURAGED_STYLE_PENALTY, mix_weight(0, 10, 0, {'Ambient'}))
-        self.assertAlmostEqual(plain * DISCOURAGED_STYLE_PENALTY, mix_weight(0, 10, 0, {'IDM'}))
-        self.assertAlmostEqual(plain * DISCOURAGED_STYLE_PENALTY ** 2,
-                               mix_weight(0, 10, 0, {'Ambient', 'IDM'}))
-
-    def test_an_unrelated_tag_costs_nothing(self) -> None:
-        self.assertEqual(mix_weight(0, 10, 0, NO_STYLES), mix_weight(0, 10, 0, {'Dub', 'Reggae'}))
-
-    def test_the_penalty_reaches_weigh_candidates(self) -> None:
-        rhythmic = MixTrack(artist='Yagya', title='Rhythmic')
-        ambient = MixTrack(artist='Loscil', title='Beatless')
-        weights = weigh_candidates([
-            mix(TODAY, rhythmic, categories={'Dub Techno'}),
-            mix(TODAY, ambient, categories={'Dub Techno', 'Ambient'})
-        ], TODAY)
-
-        self.assertGreater(weights[rhythmic], weights[ambient])
 
 
 class RecordingMatching(TestCase):

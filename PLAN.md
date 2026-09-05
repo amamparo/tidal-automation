@@ -12,6 +12,14 @@ It mirrors `src/update_daily_blend.py` in shape and adds nothing to `src/tidal.p
 stated as measured was re-verified against the live API, the live Tidal account, and the repo's own gates on
 2026-09-03.
 
+> **Superseded, 2026-09-04.** The search criteria changed after this plan was executed. The query is now
+> `style:"Dub Techno" style:Minimal -tracklist:none` over the same rolling window — the *intersection* of the
+> two tags, with `hasplayer` dropped — and the Ambient/IDM weight penalty was removed entirely, taking
+> `categories_of` and `Tracklist.categories` with it. That takes the corpus from 122 mixes and 2085
+> candidates to roughly 15 mixes and 220 candidates, so **every measured figure below describes the original
+> corpus, not today's**. `MINIMUM_SEARCH_HITS` is now 10 and `MINIMUM_CANDIDATES` 150. The code is the source
+> of truth; this document is the record of how it was built.
+
 ---
 
 ## Key decisions

@@ -3,7 +3,7 @@ from pathlib import Path
 from typing import List, Tuple
 from unittest import TestCase
 
-from src.mixes_db import MixTrack, categories_of, date_window, parse_tracklist, recorded_on
+from src.mixes_db import MixTrack, date_window, parse_tracklist, recorded_on
 from src.update_dub_techno import search_query
 
 FIXTURES = Path(__file__).parent / 'fixtures' / 'mixes_db'
@@ -168,14 +168,14 @@ class TracklistParsing(TestCase):
 
 class DateWindow(TestCase):
     def test_date_window(self) -> None:
-        self.assertEqual('2026,2025-10,2025-11,2025-12', date_window(date(2026, 9, 3)))
+        self.assertEqual('2026,2025-12,2025-11,2025-10,2025-09', date_window(date(2026, 9, 3)))
 
     def test_date_window_in_january(self) -> None:
         tokens = date_window(date(2027, 1, 2)).split(',')
 
-        self.assertEqual(12, len(tokens))
+        self.assertEqual(13, len(tokens))
         self.assertEqual('2027', tokens[0])
-        self.assertEqual([f'2026-{month:02d}' for month in range(2, 13)], tokens[1:])
+        self.assertEqual([f'2026-{month:02d}' for month in range(12, 0, -1)], tokens[1:])
 
     def test_date_window_reaches_back_through_the_previous_year(self) -> None:
         for month in range(1, 13):
@@ -183,13 +183,13 @@ class DateWindow(TestCase):
                 tokens = date_window(date(2027, month, 1)).split(',')
 
                 self.assertEqual('2027', tokens[0])
-                self.assertEqual([f'2026-{trailing:02d}' for trailing in range(month + 1, 13)], tokens[1:])
+                self.assertEqual([f'2026-{trailing:02d}' for trailing in range(12, month - 1, -1)], tokens[1:])
 
 
 class SearchQuery(TestCase):
     def test_search_query(self) -> None:
         self.assertEqual(
-            'style:"Dub Techno" -tracklist:none hasplayer date:2026,2025-10,2025-11,2025-12',
+            'style:"Dub Techno" style:Minimal -tracklist:none date:2026,2025-12,2025-11,2025-10,2025-09',
             search_query(date(2026, 9, 3))
         )
 
@@ -231,11 +231,3 @@ class Candidates(TestCase):
     def test_recorded_on_clamps_an_impossible_day_to_the_month_length(self) -> None:
         self.assertEqual(date(2025, 2, 28), recorded_on('2025-02-31 - Nonexistent Day'))
         self.assertEqual(date(2024, 2, 29), recorded_on('2024-02-31 - Leap Year'))
-
-    def test_categories_of_reads_the_style_tags(self) -> None:
-        page = '[[Category:2026]]\n[[Category:dESUS]]\n[[Category:Dub Techno]]\n[[Category:Ambient]]'
-
-        self.assertEqual({'2026', 'dESUS', 'Dub Techno', 'Ambient'}, categories_of(page))
-
-    def test_categories_of_reads_nothing_from_a_page_without_categories(self) -> None:
-        self.assertEqual(set(), categories_of('== Tracklist ==\n# A - B'))
