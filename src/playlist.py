@@ -74,10 +74,17 @@ def genre_affinity(tags: Dict[str, float], profile: Dict[str, float]) -> float:
     return shared / (artist_magnitude * profile_magnitude)
 
 
+def affordable_lookups(wanted: int, seconds_left: float, seconds_per_request: float) -> int:
+    if seconds_per_request <= 0.0:
+        return wanted
+    return max(0, min(wanted, int((seconds_left - MATCH_DEADLINE_SECONDS) / seconds_per_request)))
+
+
 def styles_while_time_allows(discogs: Discogs, artists: List[str],
                              seconds_left: Callable[[], float]) -> Dict[str, Dict[str, float]]:
     styles_by_artist: Dict[str, Dict[str, float]] = {}
-    with tqdm(total=len(artists), desc='Reading releases') as progress:
+    reachable = affordable_lookups(len(artists), seconds_left(), discogs.seconds_per_request)
+    with tqdm(total=reachable, desc='Reading releases') as progress:
         for artist in artists:
             if seconds_left() - discogs.seconds_per_request < MATCH_DEADLINE_SECONDS:
                 break

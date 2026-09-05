@@ -12,6 +12,7 @@ from src.playlist import (
     MATCH_DEADLINE_SECONDS,
     RECENCY_HALF_LIFE_DAYS,
     genre_affinity,
+    affordable_lookups,
     genre_fingerprint,
     genre_profile,
     is_same_recording,
@@ -278,3 +279,17 @@ class DiscogsEnrichment(TestCase):
         self.assertNotAlmostEqual(unasked[UNTAGGED], affordable[UNTAGGED])
         self.assertAlmostEqual(unasked[UNTAGGED], unaffordable[UNTAGGED])
 
+
+class AffordableLookups(TestCase):
+    def test_the_budget_caps_the_count(self) -> None:
+        self.assertEqual(50, affordable_lookups(500, MATCH_DEADLINE_SECONDS + 100.0, 2.0))
+
+    def test_it_never_promises_more_than_was_asked_for(self) -> None:
+        self.assertEqual(3, affordable_lookups(3, MATCH_DEADLINE_SECONDS + 1000.0, 2.0))
+
+    def test_no_budget_left_reaches_nobody(self) -> None:
+        self.assertEqual(0, affordable_lookups(500, MATCH_DEADLINE_SECONDS, 2.0))
+        self.assertEqual(0, affordable_lookups(500, MATCH_DEADLINE_SECONDS - 60.0, 2.0))
+
+    def test_a_free_request_is_unbounded_rather_than_dividing_by_zero(self) -> None:
+        self.assertEqual(500, affordable_lookups(500, 0.0, 0.0))
