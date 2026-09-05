@@ -147,11 +147,11 @@ def widened_corpus(mixes_db: MixesDb, query_for: Callable[[int], str],
     tracklists = mixes_db.get_tracklists(query_for(months))
     candidates = candidates_from(tracklists)
     while len(candidates) < playlist_size:
-        months += WIDENING_MONTHS
-        wider = mixes_db.get_tracklists(query_for(months))
+        wider = mixes_db.get_tracklists(query_for(months + WIDENING_MONTHS))
         widened = candidates_from(wider)
         if len(widened) <= len(candidates):
             break
+        months += WIDENING_MONTHS
         tracklists, candidates = wider, widened
     print(f'mixesdb: {len(tracklists)} tracklists over {months} months, {len(candidates)} candidates')
     return tracklists, candidates
