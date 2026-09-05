@@ -65,6 +65,28 @@ def genre_profile(artist_tags: Iterable[Dict[str, float]]) -> Dict[str, float]:
     return profile
 
 
+def tag_rarity(fingerprints: List[Dict[str, float]]) -> Dict[str, float]:
+    carrying: Dict[str, int] = defaultdict(int)
+    for fingerprint in fingerprints:
+        for tag in fingerprint:
+            carrying[tag] += 1
+    return {tag: max(0.0, log(len(fingerprints) / (1 + count))) for tag, count in carrying.items()}
+
+
+def emphasise_rare(fingerprint: Dict[str, float], rarity: Dict[str, float]) -> Dict[str, float]:
+    return {tag: weight * rarity.get(tag, 0.0) for tag, weight in fingerprint.items()}
+
+
+def core_profile(fingerprints: List[Dict[str, float]]) -> Dict[str, float]:
+    everything = genre_profile(fingerprints)
+    scored = [(genre_affinity(fingerprint, everything), fingerprint)
+              for fingerprint in fingerprints if fingerprint]
+    if not scored:
+        return everything
+    typical = median(score for score, _ in scored)
+    return genre_profile([fingerprint for score, fingerprint in scored if score >= typical])
+
+
 def genre_affinity(tags: Dict[str, float], profile: Dict[str, float]) -> float:
     artist_magnitude = sqrt(sum(weight ** 2 for weight in tags.values()))
     profile_magnitude = sqrt(sum(weight ** 2 for weight in profile.values()))
@@ -104,18 +126,24 @@ def weigh_by_genre(last_fm: LastFm, discogs: Discogs, weights: Dict[MixTrack, fl
 
     fingerprints = {artist: genre_fingerprint(tags_by_artist[artist], styles_by_artist.get(artist, {}))
                     for artist in artists}
-    profile = genre_profile(fingerprints.values())
+    rarity = tag_rarity(list(fingerprints.values()))
+    distinctive = {artist: emphasise_rare(fingerprint, rarity)
+                   for artist, fingerprint in fingerprints.items()}
+    profile = core_profile(list(distinctive.values()))
     affinities = {artist: genre_affinity(fingerprint, profile)
-                  for artist, fingerprint in fingerprints.items() if fingerprint}
-    typical = median(affinities.values()) if affinities else 1.0
+                  for artist, fingerprint in distinctive.items() if fingerprint}
     print(f'genres: {len(affinities)} of {len(artists)} artists fingerprinted across {len(profile)} genres, '
-          f'{len(styles_by_artist)} enriched from discogs, the rest weigh {typical:.2f}')
+          f'{len(styles_by_artist)} enriched from discogs')
+    if not any(affinities.values()):
+        return weights
+    typical = median(affinities.values())
     return {track: weight * affinities.get(track.artist, typical) for track, weight in weights.items()}
 
 
 def weighted_draw(weights: Dict[MixTrack, float], seed: int) -> List[MixTrack]:
     random = Random(seed)
-    return sorted(weights, key=lambda track: -log(random.random()) / weights[track])
+    drawable = {track: weight for track, weight in weights.items() if weight > 0.0}
+    return sorted(drawable, key=lambda track: -log(random.random()) / drawable[track])
 
 
 def is_same_recording(mix_title: str, found_name: str) -> bool:
