@@ -1,8 +1,9 @@
 import re
 from collections import defaultdict
 from datetime import date
-from math import log
+from math import log, sqrt
 from random import Random
+from statistics import median
 from typing import Callable, Dict, List, Optional, Tuple
 
 from requests.exceptions import HTTPError  # type: ignore[import-untyped]
@@ -17,6 +18,8 @@ from src.tidal import Tidal
 HOTTEST_MIX_WEIGHT = 5.0
 RECENCY_HALF_LIFE_DAYS = 180.0
 SEED_REQUESTS = 2
+PITCH_FADER_RANGE = 0.08
+OCTAVE = sqrt(2.0)
 TITLE_QUALIFIER = re.compile(r'\s+[(\[].*$|\s+\d{1,3}$')
 
 
@@ -88,12 +91,41 @@ def gather_recommendations(tidal: Tidal, candidates: List[MixTrack], weights: Di
     return recommended
 
 
-def most_recommended(recommended: Dict[str, List[float]], playlist_size: int) -> List[str]:
+def most_recommended(recommended: Dict[str, List[float]]) -> List[str]:
     def consensus(track_id: str) -> Tuple[int, float, str]:
         seed_weights = recommended[track_id]
         return -len(seed_weights), -sum(seed_weights), track_id
 
-    return sorted(recommended, key=consensus)[:playlist_size]
+    return sorted(recommended, key=consensus)
+
+
+def fold_to_octave(tempo: float, centre: float) -> float:
+    while tempo < centre / OCTAVE:
+        tempo *= 2.0
+    while tempo > centre * OCTAVE:
+        tempo /= 2.0
+    return tempo
+
+
+def centre_of_gravity(tempos: List[float]) -> float:
+    centre = median(tempos)
+    return median([fold_to_octave(tempo, centre) for tempo in tempos])
+
+
+def mixable_with(tempo: float, centre: float) -> bool:
+    return abs(fold_to_octave(tempo, centre) - centre) <= centre * PITCH_FADER_RANGE
+
+
+def mixable_selection(ranked: List[str], tempo_of: Callable[[str], Optional[int]],
+                      playlist_size: int) -> List[str]:
+    timed = [(track_id, float(tempo)) for track_id in ranked
+             if (tempo := tempo_of(track_id)) is not None]
+    if not timed:
+        return []
+    centre = centre_of_gravity([tempo for _, tempo in timed[:playlist_size]])
+    selected = [track_id for track_id, tempo in timed if mixable_with(tempo, centre)]
+    print(f'tempo: {len(timed)} of {len(ranked)} timed, {len(selected)} mixable around {centre:.0f} bpm')
+    return selected[:playlist_size]
 
 
 def rebuild(tidal: Tidal, mixes_db: MixesDb, *, query: str, playlist_id: str, playlist_size: int,
@@ -107,7 +139,9 @@ def rebuild(tidal: Tidal, mixes_db: MixesDb, *, query: str, playlist_id: str, pl
 
     candidates = weighted_draw(weights, today.toordinal())
     recommended = gather_recommendations(tidal, candidates, weights, playlist_size, seconds_left)
-    track_ids = most_recommended(recommended, playlist_size)
+    ranked = most_recommended(recommended)
+    track_ids = mixable_selection(ranked, tidal.beats_per_minute, playlist_size)
     if len(track_ids) < playlist_size:
-        raise RuntimeError(f'only {len(track_ids)} tracks recommended; leaving the playlist untouched')
+        raise RuntimeError(f'only {len(track_ids)} mixable tracks of {len(ranked)} recommended; '
+                           'leaving the playlist untouched')
     tidal.set_playlist_tracks(playlist_id, track_ids)

@@ -8,11 +8,16 @@ from src.last_fm import LastFmTrack
 from src.mixes_db import MixTrack, Tracklist
 from src.playlist import (
     HOTTEST_MIX_WEIGHT,
+    PITCH_FADER_RANGE,
     RECENCY_HALF_LIFE_DAYS,
     gather_recommendations,
     is_same_recording,
     mix_weight,
     most_recommended,
+    centre_of_gravity,
+    fold_to_octave,
+    mixable_selection,
+    mixable_with,
     time_to_seed_again,
     weigh_candidates,
     weighted_draw
@@ -171,27 +176,27 @@ class MostRecommended(TestCase):
     def test_the_most_widely_recommended_track_leads(self) -> None:
         recommended = {'rare': [1.0], 'everywhere': [1.0, 1.0, 1.0], 'common': [1.0, 1.0]}
 
-        self.assertEqual(['everywhere', 'common', 'rare'], most_recommended(recommended, 3))
+        self.assertEqual(['everywhere', 'common', 'rare'], most_recommended(recommended))
 
     def test_a_tie_on_seed_count_is_broken_by_the_weight_behind_it(self) -> None:
         recommended = {'light': [1.0, 1.0], 'heavy': [5.0, 5.0]}
 
-        self.assertEqual(['heavy', 'light'], most_recommended(recommended, 2))
+        self.assertEqual(['heavy', 'light'], most_recommended(recommended))
 
     def test_an_exact_tie_is_ordered_deterministically_rather_than_by_dict_order(self) -> None:
-        forwards = most_recommended({'b': [1.0], 'a': [1.0]}, 2)
-        backwards = most_recommended({'a': [1.0], 'b': [1.0]}, 2)
+        forwards = most_recommended({'b': [1.0], 'a': [1.0]})
+        backwards = most_recommended({'a': [1.0], 'b': [1.0]})
 
         self.assertEqual(forwards, backwards)
         self.assertEqual(['a', 'b'], forwards)
 
-    def test_it_never_returns_more_than_the_playlist_holds(self) -> None:
+    def test_it_ranks_everything_so_the_tempo_filter_can_backfill(self) -> None:
         recommended = {str(track_id): [1.0] for track_id in range(500)}
 
-        self.assertEqual(PLAYLIST_SIZE, len(most_recommended(recommended, PLAYLIST_SIZE)))
+        self.assertEqual(500, len(most_recommended(recommended)))
 
     def test_nothing_recommended_returns_nothing(self) -> None:
-        self.assertEqual([], most_recommended({}, PLAYLIST_SIZE))
+        self.assertEqual([], most_recommended({}))
 
 
 class GatheringRecommendations(TestCase):
@@ -250,3 +255,62 @@ class SeedingBudget(TestCase):
 
     def test_a_free_request_always_leaves_time(self) -> None:
         self.assertTrue(time_to_seed_again(stub_tidal({}), 0.0, PLAYLIST_SIZE))
+
+
+class MixableTempo(TestCase):
+    def test_half_and_double_time_are_the_same_tempo_to_a_dj(self) -> None:
+        self.assertAlmostEqual(126.0, fold_to_octave(63.0, 126.0))
+        self.assertAlmostEqual(126.0, fold_to_octave(252.0, 126.0))
+        self.assertAlmostEqual(126.0, fold_to_octave(126.0, 126.0))
+
+    def test_a_neighbouring_tempo_is_left_alone(self) -> None:
+        self.assertAlmostEqual(140.0, fold_to_octave(140.0, 126.0))
+        self.assertAlmostEqual(101.0, fold_to_octave(101.0, 126.0))
+
+    def test_the_centre_is_the_median_after_folding(self) -> None:
+        self.assertAlmostEqual(126.0, centre_of_gravity([126.0, 63.0, 252.0]))
+
+    def test_the_window_is_a_turntables_pitch_range(self) -> None:
+        just_inside, just_outside = PITCH_FADER_RANGE - 0.01, PITCH_FADER_RANGE + 0.01
+
+        self.assertTrue(mixable_with(126.0 * (1 + just_inside), 126.0))
+        self.assertTrue(mixable_with(126.0 * (1 - just_inside), 126.0))
+        self.assertFalse(mixable_with(126.0 * (1 + just_outside), 126.0))
+        self.assertFalse(mixable_with(126.0 * (1 - just_outside), 126.0))
+
+    def test_a_half_time_track_is_mixable_with_the_centre(self) -> None:
+        self.assertTrue(mixable_with(63.0, 126.0))
+
+
+class MixableSelection(TestCase):
+    def test_an_untimed_track_is_dropped_however_well_recommended(self) -> None:
+        tempos = {'timed': 126, 'untimed': None}
+
+        selected = mixable_selection(['untimed', 'timed'], tempos.get, 2)
+
+        self.assertEqual(['timed'], selected)
+
+    def test_the_centre_comes_from_the_best_recommended_tracks(self) -> None:
+        tempos = {'a': 126, 'b': 127, 'c': 125, 'outlier': 165}
+
+        selected = mixable_selection(['a', 'b', 'c', 'outlier'], tempos.get, 3)
+
+        self.assertEqual(['a', 'b', 'c'], selected)
+
+    def test_a_track_the_window_drops_is_backfilled_from_further_down(self) -> None:
+        tempos = {'a': 126, 'b': 127, 'far': 165, 'backfill': 125}
+
+        selected = mixable_selection(['a', 'b', 'far', 'backfill'], tempos.get, 3)
+
+        self.assertEqual(['a', 'b', 'backfill'], selected)
+
+    def test_it_keeps_the_recommendation_order(self) -> None:
+        tempos = {'first': 127, 'second': 125}
+
+        self.assertEqual(['first', 'second'], mixable_selection(['first', 'second'], tempos.get, 2))
+
+    def test_nothing_timed_selects_nothing(self) -> None:
+        untimed: Dict[str, Optional[int]] = {'a': None}
+
+        self.assertEqual([], mixable_selection(['a'], untimed.get, 1))
+        self.assertEqual([], mixable_selection([], untimed.get, 1))

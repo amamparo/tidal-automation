@@ -5,7 +5,7 @@ from collections import deque
 from functools import partial
 from math import ceil
 from threading import Lock
-from typing import Callable, Deque, Dict, Iterable, List, Optional, Set, Tuple, TypeVar, cast
+from typing import Any, Callable, Deque, Dict, Iterable, List, Optional, Set, Tuple, TypeVar, cast
 
 from injector import inject, singleton
 from requests.exceptions import (  # type: ignore[import-untyped]
@@ -66,16 +66,27 @@ MINIMUM_REMIXER_NAME_LENGTH = 3
 PLAYLIST_PAGE_SIZE = 100
 PLAYLIST_WRITE_REQUESTS = 4
 PLAYLIST_READS_PER_WRITE = 2
+PLAYLIST_SETTLE_SECONDS = 1.0
 
 MISSING_ARTIST: JsonObj = {'id': None, 'name': None}
 
 
 class NullArtistTolerantSession(Session):
+    def __init__(self, *args: Any, **kwargs: Any) -> None:
+        super().__init__(*args, **kwargs)
+        self.beats_per_minute: Dict[int, Optional[int]] = {}
+
     def parse_artist(self, obj: JsonObj) -> Artist:
         return super().parse_artist(obj or MISSING_ARTIST)
 
     def parse_artists(self, obj: List[JsonObj]) -> List[Artist]:
         return super().parse_artists(obj or [MISSING_ARTIST])
+
+    def parse_track(self, obj: JsonObj, album: Optional[Album] = None) -> Track:
+        track = super().parse_track(obj, album)
+        if track.id is not None:
+            self.beats_per_minute[track.id] = obj.get('bpm')
+        return track
 
 
 @singleton
@@ -91,14 +102,20 @@ class Tidal:
         self.__max_requests_per_second = 2
         self.__request_times: Deque[float] = deque(maxlen=self.__max_requests_per_second)
         self.__rate_limit_lock = Lock()
+        self.__requests_made = 0
+        self.__seconds_in_requests = 0.0
 
     @property
     def seconds_per_request(self) -> float:
-        return 1.0 / self.__max_requests_per_second
+        rate_limited = 1.0 / self.__max_requests_per_second
+        if not self.__requests_made:
+            return rate_limited
+        return max(rate_limited, self.__seconds_in_requests / self.__requests_made)
 
     def seconds_to_set_playlist(self, playlist_size: int) -> float:
         pages = ceil(playlist_size / PLAYLIST_PAGE_SIZE)
-        return (PLAYLIST_WRITE_REQUESTS + PLAYLIST_READS_PER_WRITE * pages) * self.seconds_per_request
+        requests = PLAYLIST_WRITE_REQUESTS + PLAYLIST_READS_PER_WRITE * pages
+        return requests * self.seconds_per_request + PLAYLIST_SETTLE_SECONDS
 
     def __rate_limit(self) -> None:
         with self.__rate_limit_lock:
@@ -114,23 +131,28 @@ class Tidal:
 
     def __call_api(self, fn: Callable[[], T]) -> T:
         max_attempts = 10
-        for attempt in range(max_attempts):
-            self.__rate_limit()
-            try:
-                return fn()
-            except TooManyRequests as e:
-                if attempt == max_attempts - 1:
-                    raise
-                if e.retry_after > 0:
-                    sleep_time = float(e.retry_after) + 1.0
-                else:
-                    sleep_time = min(60.0, 2 ** (attempt + 1))
-                time.sleep(sleep_time)
-            except (RequestsConnectionError, Timeout):
-                if attempt == max_attempts - 1:
-                    raise
-                time.sleep(min(30.0, 2 ** attempt))
-        raise RuntimeError('unreachable')
+        started = time.monotonic()
+        try:
+            for attempt in range(max_attempts):
+                self.__rate_limit()
+                try:
+                    return fn()
+                except TooManyRequests as e:
+                    if attempt == max_attempts - 1:
+                        raise
+                    if e.retry_after > 0:
+                        sleep_time = float(e.retry_after) + 1.0
+                    else:
+                        sleep_time = min(60.0, 2 ** (attempt + 1))
+                    time.sleep(sleep_time)
+                except (RequestsConnectionError, Timeout):
+                    if attempt == max_attempts - 1:
+                        raise
+                    time.sleep(min(30.0, 2 ** attempt))
+            raise RuntimeError('unreachable')
+        finally:
+            self.__requests_made += 1
+            self.__seconds_in_requests += time.monotonic() - started
 
     def get_mix_tracks(self, mix_id: str) -> Set[Track]:
         items = self.__call_api(lambda: self.__tidal.mix(mix_id).items())
@@ -172,6 +194,9 @@ class Tidal:
         arriving = [track_id for track_id in track_ids if track_id not in surviving]
         if arriving:
             self.__call_api(lambda: playlist.add(arriving, limit=len(arriving)))
+
+    def beats_per_minute(self, track_id: str) -> Optional[int]:
+        return self.__tidal.beats_per_minute.get(int(track_id))
 
     def track_radio(self, track: Track) -> List[Track]:
         try:
