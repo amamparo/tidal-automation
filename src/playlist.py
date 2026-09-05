@@ -53,8 +53,8 @@ def time_to_seed_again(tidal: Tidal, seconds_left: float, playlist_size: int) ->
 
 
 def gather_recommendations(tidal: Tidal, candidates: List[MixTrack], playlist_size: int,
-                           seconds_left: Callable[[], float]) -> Counter:
-    recommended: Counter = Counter()
+                           seconds_left: Callable[[], float]) -> Counter[str]:
+    recommended: Counter[str] = Counter()
     seeded = without_radio = 0
 
     with tqdm(total=len(candidates), desc='Reading radios') as progress:
@@ -75,12 +75,17 @@ def gather_recommendations(tidal: Tidal, candidates: List[MixTrack], playlist_si
     return recommended
 
 
-def most_recommended(recommended: Counter) -> List[str]:
+def most_recommended(recommended: Counter[str]) -> List[str]:
     return sorted(recommended, key=lambda track_id: (-recommended[track_id], track_id))
 
 
 def tempo_span(tempos: List[float]) -> float:
     return max(tempos) / min(tempos)
+
+
+def fits_inside_one_pitch_fader(tracks: List[TimedTrack]) -> bool:
+    tempos = [track.tempo for track in tracks]
+    return not tempos or tempo_span(tempos) <= MIXABLE_SPAN
 
 
 def without_the_least_recommended_outlier(selected: List[TimedTrack]) -> List[TimedTrack]:
@@ -92,18 +97,14 @@ def without_the_least_recommended_outlier(selected: List[TimedTrack]) -> List[Ti
 
 def annealed_selection(timed: List[TimedTrack], playlist_size: int) -> List[TimedTrack]:
     selected = timed[:playlist_size]
-    considered = len(selected)
-    while True:
-        tempos = [track.tempo for track in selected]
-        if tempos and tempo_span(tempos) > MIXABLE_SPAN:
-            selected = without_the_least_recommended_outlier(selected)
-            continue
-        if len(selected) >= playlist_size or considered >= len(timed):
-            return selected
-        candidate = timed[considered]
-        considered += 1
-        if tempo_span([*tempos, candidate.tempo]) <= MIXABLE_SPAN:
+    while not fits_inside_one_pitch_fader(selected):
+        selected = without_the_least_recommended_outlier(selected)
+    for candidate in timed[playlist_size:]:
+        if len(selected) >= playlist_size:
+            break
+        if fits_inside_one_pitch_fader([*selected, candidate]):
             selected.append(candidate)
+    return selected
 
 
 def mixable_selection(ranked: List[str], tempo_of: Callable[[str], Optional[int]],

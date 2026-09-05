@@ -21,8 +21,6 @@ from src.playlist import (
 from src.tidal import Tidal
 
 TODAY = date(2026, 9, 3)
-
-
 PLAYLIST_SIZE = 100
 
 
@@ -91,8 +89,6 @@ class MostRecommended(TestCase):
         recommended = Counter({'rare': 1, 'everywhere': 3, 'common': 2})
 
         self.assertEqual(['everywhere', 'common', 'rare'], most_recommended(recommended))
-
-
 
     def test_an_exact_tie_is_ordered_deterministically_rather_than_by_dict_order(self) -> None:
         forwards = most_recommended(Counter({'b': 1, 'a': 1}))
@@ -274,7 +270,7 @@ class WideningCorpus(TestCase):
         _, candidates = widened_corpus(mixes_db, str, PLAYLIST_SIZE)
 
         self.assertEqual(250, len(candidates))
-        self.assertEqual([WINDOW_MONTHS], getattr(mixes_db, 'asked'))
+        self.assertEqual([WINDOW_MONTHS], cast(StubMixesDb, mixes_db).asked)
 
     def test_a_thin_window_widens_until_it_can_fill_the_playlist(self) -> None:
         mixes_db = stub_mixes_db({WINDOW_MONTHS: 20, WINDOW_MONTHS + WIDENING_MONTHS: 60,
@@ -284,7 +280,7 @@ class WideningCorpus(TestCase):
 
         self.assertEqual(140, len(candidates))
         self.assertEqual([WINDOW_MONTHS, WINDOW_MONTHS + WIDENING_MONTHS,
-                          WINDOW_MONTHS + 2 * WIDENING_MONTHS], getattr(mixes_db, 'asked'))
+                          WINDOW_MONTHS + 2 * WIDENING_MONTHS], cast(StubMixesDb, mixes_db).asked)
 
     def test_widening_stops_once_a_wider_window_adds_nothing(self) -> None:
         mixes_db = stub_mixes_db({WINDOW_MONTHS: 30})
@@ -292,7 +288,7 @@ class WideningCorpus(TestCase):
         _, candidates = widened_corpus(mixes_db, str, PLAYLIST_SIZE)
 
         self.assertEqual(30, len(candidates))
-        self.assertEqual([WINDOW_MONTHS, WINDOW_MONTHS + WIDENING_MONTHS], getattr(mixes_db, 'asked'))
+        self.assertEqual([WINDOW_MONTHS, WINDOW_MONTHS + WIDENING_MONTHS], cast(StubMixesDb, mixes_db).asked)
 
 
 class CorpusCandidates(TestCase):
