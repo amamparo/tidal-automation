@@ -1,8 +1,10 @@
 from collections import Counter
+from dataclasses import dataclass
 from datetime import date, timedelta
-from typing import Callable, Dict, List, cast
+from typing import Callable, Dict, List, Optional, cast
 from unittest import TestCase
 
+from src.last_fm import LastFmTrack
 from src.mixes_db import MixTrack, Tracklist
 from src.playlist import (
     HOTTEST_MIX_WEIGHT,
@@ -30,14 +32,51 @@ LIGHT = MixTrack(artist='Deepchord', title='Vantage Point')
 MEDIUM = MixTrack(artist='Polygonia', title='Dreaming Trees')
 HEAVY = MixTrack(artist='Rod Modell', title='Incense And Black Light')
 
-LEADER_SEEDS = 300
-MARGINAL_SEEDS = 10000
+LEADER_DRAWS = 300
+MARGINAL_DRAWS = 10000
 
 PLAYLIST_SIZE = 100
 
 
 def mix(recorded_on: date, *tracks: MixTrack) -> Tracklist:
     return Tracklist(recorded_on=recorded_on, tracks=list(tracks))
+
+
+@dataclass
+class FoundTrack:
+    id: int
+    name: str
+
+
+class StubTidal:
+    def __init__(self, radios: Dict[str, List[int]], seconds_per_request: float) -> None:
+        self.radios = radios
+        self.seconds_per_request = seconds_per_request
+        self.seeded: List[str] = []
+
+    def seconds_to_set_playlist(self, playlist_size: int) -> float:
+        return playlist_size * self.seconds_per_request
+
+    def find_equivalent_track(self, last_fm_track: LastFmTrack, **_: object) -> Optional[FoundTrack]:
+        title = last_fm_track.title
+        return FoundTrack(hash(title), title) if title in self.radios else None
+
+    def track_radio(self, track: FoundTrack) -> List[FoundTrack]:
+        self.seeded.append(track.name)
+        return [FoundTrack(recommended, f'track {recommended}') for recommended in self.radios[track.name]]
+
+
+def stub_tidal(radios: Dict[str, List[int]], seconds_per_request: float = 0.0) -> Tidal:
+    return cast(Tidal, StubTidal(radios, seconds_per_request))
+
+
+def no_deadline() -> float:
+    return float('inf')
+
+
+def clock_reading(*readings: float) -> Callable[[], float]:
+    remaining = iter(readings)
+    return lambda: next(remaining)
 
 
 class CandidateSelection(TestCase):
@@ -98,18 +137,19 @@ class CandidateSelection(TestCase):
         self.assertNotEqual(weighted_draw(POOL, 7), weighted_draw(POOL, 8))
 
     def test_weighted_draw_favours_heavier_tracks(self) -> None:
-        leaders = Counter(weighted_draw({HEAVY: 10.0, LIGHT: 1.0}, seed)[0] for seed in range(LEADER_SEEDS))
+        weights = {HEAVY: 10.0, LIGHT: 1.0}
+        leaders = Counter(weighted_draw(weights, random_seed)[0] for random_seed in range(LEADER_DRAWS))
 
-        self.assertEqual(LEADER_SEEDS, leaders[HEAVY] + leaders[LIGHT])
+        self.assertEqual(LEADER_DRAWS, leaders[HEAVY] + leaders[LIGHT])
         self.assertGreater(leaders[HEAVY], 3 * leaders[LIGHT])
 
     def test_weighted_draw_matches_the_exponential_race_marginals(self) -> None:
         weights = {LIGHT: 1.0, MEDIUM: 2.0, HEAVY: 7.0}
-        leaders = Counter(weighted_draw(weights, seed)[0] for seed in range(MARGINAL_SEEDS))
+        leaders = Counter(weighted_draw(weights, random_seed)[0] for random_seed in range(MARGINAL_DRAWS))
 
-        self.assertAlmostEqual(0.1, leaders[LIGHT] / MARGINAL_SEEDS, delta=0.03)
-        self.assertAlmostEqual(0.2, leaders[MEDIUM] / MARGINAL_SEEDS, delta=0.03)
-        self.assertAlmostEqual(0.7, leaders[HEAVY] / MARGINAL_SEEDS, delta=0.03)
+        self.assertAlmostEqual(0.1, leaders[LIGHT] / MARGINAL_DRAWS, delta=0.03)
+        self.assertAlmostEqual(0.2, leaders[MEDIUM] / MARGINAL_DRAWS, delta=0.03)
+        self.assertAlmostEqual(0.7, leaders[HEAVY] / MARGINAL_DRAWS, delta=0.03)
 
 
 class RecordingMatching(TestCase):
@@ -125,42 +165,6 @@ class RecordingMatching(TestCase):
 
     def test_keeps_a_numbered_ep_track(self) -> None:
         self.assertTrue(is_same_recording("You Don't Fool Me", "You Don't Fool Me 1"))
-
-
-class FoundTrack:
-    def __init__(self, track_id: int, name: str) -> None:
-        self.id = track_id
-        self.name = name
-
-
-def stub_tidal(radios: Dict[str, List[int]], seconds_per_request: float = 0.0) -> Tidal:
-    class Stub:
-        def __init__(self) -> None:
-            self.seconds_per_request = seconds_per_request
-            self.seeded: List[str] = []
-
-        def seconds_to_set_playlist(self, playlist_size: int) -> float:
-            return playlist_size * seconds_per_request
-
-        def find_equivalent_track(self, last_fm_track: object, **_: object) -> object:
-            title = cast(str, getattr(last_fm_track, 'title'))
-            return FoundTrack(hash(title), title) if title in radios else None
-
-        def track_radio(self, track: object) -> List[FoundTrack]:
-            name = cast(str, getattr(track, 'name'))
-            self.seeded.append(name)
-            return [FoundTrack(recommended, f'track {recommended}') for recommended in radios[name]]
-
-    return cast(Tidal, Stub())
-
-
-def no_deadline() -> float:
-    return float('inf')
-
-
-def clock_reading(*readings: float) -> Callable[[], float]:
-    remaining = iter(readings)
-    return lambda: next(remaining)
 
 
 class MostRecommended(TestCase):
@@ -233,7 +237,7 @@ class GatheringRecommendations(TestCase):
 
         gather_recommendations(tidal, seeds, {seed: 1.0 for seed in seeds}, 1, clock_reading(5.0, 4.0, 2.0))
 
-        self.assertEqual(['Track 0', 'Track 1'], getattr(tidal, 'seeded'))
+        self.assertEqual(['Track 0', 'Track 1'], cast(StubTidal, tidal).seeded)
 
 
 class SeedingBudget(TestCase):

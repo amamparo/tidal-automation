@@ -65,6 +65,7 @@ MINIMUM_REMIXER_NAME_LENGTH = 3
 
 PLAYLIST_PAGE_SIZE = 100
 PLAYLIST_WRITE_REQUESTS = 4
+PLAYLIST_READS_PER_WRITE = 2
 
 MISSING_ARTIST: JsonObj = {'id': None, 'name': None}
 
@@ -97,7 +98,7 @@ class Tidal:
 
     def seconds_to_set_playlist(self, playlist_size: int) -> float:
         pages = ceil(playlist_size / PLAYLIST_PAGE_SIZE)
-        return (PLAYLIST_WRITE_REQUESTS + 2 * pages) * self.seconds_per_request
+        return (PLAYLIST_WRITE_REQUESTS + PLAYLIST_READS_PER_WRITE * pages) * self.seconds_per_request
 
     def __rate_limit(self) -> None:
         with self.__rate_limit_lock:
