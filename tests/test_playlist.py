@@ -311,6 +311,11 @@ class MixableSelection(TestCase):
 
         self.assertEqual(['first', 'second'], mixable_selection(['first', 'second'], tempos.get, 2))
 
+    def test_a_zero_tempo_is_untimed_rather_than_an_endless_fold(self) -> None:
+        tempos: Dict[str, Optional[int]] = {'zero': 0, 'timed': 126}
+
+        self.assertEqual(['timed'], mixable_selection(['zero', 'timed'], tempos.get, 2))
+
     def test_nothing_timed_selects_nothing(self) -> None:
         untimed: Dict[str, Optional[int]] = {'a': None}
 

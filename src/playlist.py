@@ -120,7 +120,7 @@ def mixable_with(tempo: float, centre: float) -> bool:
 def mixable_selection(ranked: List[str], tempo_of: Callable[[str], Optional[int]],
                       playlist_size: int) -> List[str]:
     timed = [(track_id, float(tempo)) for track_id in ranked
-             if (tempo := tempo_of(track_id)) is not None]
+             if (tempo := tempo_of(track_id)) is not None and tempo > 0]
     if not timed:
         return []
     centre = centre_of_gravity([tempo for _, tempo in timed[:playlist_size]])
