@@ -1,5 +1,6 @@
 import re
 from collections import defaultdict
+from dataclasses import dataclass
 from datetime import date
 from math import log, sqrt
 from random import Random
@@ -24,6 +25,12 @@ BPM_RESOLUTION = 1.0
 OCTAVE = 2.0
 HALF_OCTAVE = sqrt(OCTAVE)
 TITLE_QUALIFIER = re.compile(r'\s+[(\[].*$|\s+\d{1,3}$')
+
+
+@dataclass
+class TimedTrack:
+    track_id: str
+    tempo: float
 
 
 def mix_weight(rank: int, mix_count: int, age_days: int) -> float:
@@ -121,45 +128,44 @@ def mixable_with(tempo: float, centre: float) -> bool:
 
 def outlier_fence(tempos: List[float]) -> Tuple[float, float]:
     centre = median(tempos)
-    deviation = median([abs(tempo - centre) for tempo in tempos]) or BPM_RESOLUTION
-    return centre - OUTLIER_FENCE * deviation, centre + OUTLIER_FENCE * deviation
+    deviation = median([abs(tempo - centre) for tempo in tempos])
+    spread = deviation if deviation > 0.0 else BPM_RESOLUTION
+    return centre - OUTLIER_FENCE * spread, centre + OUTLIER_FENCE * spread
 
 
-def focused_selection(folded: List[Tuple[str, float]], playlist_size: int) -> List[str]:
+def focused_selection(folded: List[TimedTrack], playlist_size: int) -> List[TimedTrack]:
     selected = folded[:playlist_size]
     considered = len(selected)
     while selected:
-        low, high = outlier_fence([tempo for _, tempo in selected])
-        inliers = [(track_id, tempo) for track_id, tempo in selected if low <= tempo <= high]
-        refilled = False
+        low, high = outlier_fence([track.tempo for track in selected])
+        inliers = [track for track in selected if low <= track.tempo <= high]
         while len(inliers) < playlist_size and considered < len(folded):
-            track_id, tempo = folded[considered]
+            candidate = folded[considered]
             considered += 1
-            if low <= tempo <= high:
-                inliers.append((track_id, tempo))
-                refilled = True
-        if len(inliers) == len(selected) and not refilled:
+            if low <= candidate.tempo <= high:
+                inliers.append(candidate)
+        if inliers == selected:
             break
         selected = inliers
-    return [track_id for track_id, _ in selected]
+    return selected
 
 
 def mixable_selection(ranked: List[str], tempo_of: Callable[[str], Optional[int]],
                       playlist_size: int) -> List[str]:
-    timed = [(track_id, float(tempo)) for track_id in ranked
+    timed = [TimedTrack(track_id, float(tempo)) for track_id in ranked
              if (tempo := tempo_of(track_id)) is not None and tempo > 0]
     if not timed:
         return []
-    centre = centre_of_gravity([tempo for _, tempo in timed])
-    beatmatchable = [(track_id, fold_to_octave(tempo, centre)) for track_id, tempo in timed
-                     if mixable_with(tempo, centre)]
+    centre = centre_of_gravity([track.tempo for track in timed])
+    beatmatchable = [TimedTrack(track.track_id, fold_to_octave(track.tempo, centre))
+                     for track in timed if mixable_with(track.tempo, centre)]
     if not beatmatchable:
         return []
     selected = focused_selection(beatmatchable, playlist_size)
-    tempos = sorted(dict(beatmatchable)[track_id] for track_id in selected)
+    tempos = sorted(track.tempo for track in selected)
     print(f'tempo: {len(timed)} of {len(ranked)} timed, {len(beatmatchable)} beatmatchable, '
           f'{len(selected)} focused between {tempos[0]:.0f} and {tempos[-1]:.0f} bpm')
-    return selected
+    return [track.track_id for track in selected]
 
 
 def rebuild(tidal: Tidal, mixes_db: MixesDb, *, query: str, playlist_id: str, playlist_size: int,

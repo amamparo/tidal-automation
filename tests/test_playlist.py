@@ -11,7 +11,9 @@ from src.playlist import (
     OUTLIER_FENCE,
     PITCH_FADER_RANGE,
     RECENCY_HALF_LIFE_DAYS,
+    TimedTrack,
     centre_of_gravity,
+    focused_selection,
     fold_to_octave,
     gather_recommendations,
     is_same_recording,
@@ -20,7 +22,6 @@ from src.playlist import (
     mixable_with,
     most_recommended,
     outlier_fence,
-    focused_selection,
     time_to_seed_again,
     weigh_candidates,
     weighted_draw
@@ -49,6 +50,10 @@ CENTRE_BPM = 126.0
 
 def mix(recorded_on: date, *tracks: MixTrack) -> Tracklist:
     return Tracklist(recorded_on=recorded_on, tracks=list(tracks))
+
+
+def folded_tracks(**tempos: float) -> List[TimedTrack]:
+    return [TimedTrack(track_id, tempo) for track_id, tempo in tempos.items()]
 
 
 @dataclass
@@ -350,27 +355,26 @@ class OutlierFence(TestCase):
 
 class FocusedSelection(TestCase):
     def test_the_most_recommended_are_kept_when_they_already_agree(self) -> None:
-        folded = [(f't{n}', 126.0 + n % 3) for n in range(20)]
+        folded = [TimedTrack(f't{n}', 126.0 + n % 3) for n in range(20)]
 
-        self.assertEqual([f't{n}' for n in range(10)], focused_selection(folded, 10))
+        self.assertEqual(folded[:10], focused_selection(folded, 10))
 
     def test_an_outlier_is_replaced_by_the_next_recommended_inlier(self) -> None:
-        folded = [('a', 126.0), ('b', 127.0), ('wild', 200.0), ('c', 125.0), ('d', 126.0)]
+        folded = folded_tracks(a=126.0, b=127.0, wild=200.0, c=125.0, d=126.0)
 
         selected = focused_selection(folded, 4)
 
-        self.assertNotIn('wild', selected)
-        self.assertEqual(['a', 'b', 'c', 'd'], selected)
+        self.assertEqual(['a', 'b', 'c', 'd'], [track.track_id for track in selected])
 
     def test_it_keeps_a_spread_rather_than_collapsing_onto_one_tempo(self) -> None:
-        folded = [('a', 126.0), ('b', 124.0), ('c', 128.0), ('d', 125.0), ('e', 127.0)]
+        folded = folded_tracks(a=126.0, b=124.0, c=128.0, d=125.0, e=127.0)
 
         selected = focused_selection(folded, 5)
 
         self.assertEqual(5, len(selected))
-        self.assertEqual(5, len({dict(folded)[track_id] for track_id in selected}))
+        self.assertEqual(5, len({track.tempo for track in selected}))
 
     def test_it_stops_when_the_pool_runs_out_rather_than_looping(self) -> None:
-        folded = [('a', 126.0), ('b', 127.0), ('wild', 400.0)]
+        folded = folded_tracks(a=126.0, b=127.0, wild=400.0)
 
-        self.assertEqual(['a', 'b'], focused_selection(folded, 3))
+        self.assertEqual(['a', 'b'], [track.track_id for track in focused_selection(folded, 3)])

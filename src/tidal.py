@@ -119,9 +119,9 @@ class Tidal:
 
     def seconds_to_set_playlist(self, playlist_size: int) -> float:
         pages = ceil(playlist_size / PLAYLIST_PAGE_SIZE)
-        requests = PLAYLIST_WRITE_REQUESTS + PLAYLIST_WRITE_ATTEMPTS * PLAYLIST_READS_PER_WRITE * pages
-        retrying = sum(playlist_write_backoff(attempt) for attempt in range(PLAYLIST_WRITE_ATTEMPTS - 1))
-        return requests * self.seconds_per_request + PLAYLIST_SETTLE_SECONDS + retrying
+        request_count = PLAYLIST_WRITE_REQUESTS + PLAYLIST_WRITE_ATTEMPTS * PLAYLIST_READS_PER_WRITE * pages
+        backoff_seconds = sum(playlist_write_backoff(attempt) for attempt in range(PLAYLIST_WRITE_ATTEMPTS - 1))
+        return request_count * self.seconds_per_request + PLAYLIST_SETTLE_SECONDS + backoff_seconds
 
     def __rate_limit(self) -> None:
         with self.__rate_limit_lock:
