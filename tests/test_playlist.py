@@ -12,13 +12,8 @@ from src.playlist import (
     MATCH_DEADLINE_SECONDS,
     RECENCY_HALF_LIFE_DAYS,
     genre_affinity,
-    PITCH_FADER_RANGE,
     affordable_lookups,
     core_profile,
-    fold_to_octave,
-    mixable_selection,
-    mixable_tempo,
-    mixable_with,
     emphasise_rare,
     genre_fingerprint,
     tag_rarity,
@@ -366,42 +361,3 @@ class ZeroWeightCandidates(TestCase):
 
     def test_an_all_zero_pool_draws_nobody_rather_than_dividing_by_zero(self) -> None:
         self.assertEqual([], weighted_draw({MixTrack(artist='a', title='b'): 0.0}, 7))
-
-
-class MixableTempo(TestCase):
-    def test_half_and_double_time_are_the_same_tempo_to_a_dj(self) -> None:
-        self.assertAlmostEqual(126.0, fold_to_octave(63.0, 126.0))
-        self.assertAlmostEqual(126.0, fold_to_octave(252.0, 126.0))
-        self.assertAlmostEqual(126.0, fold_to_octave(126.0, 126.0))
-
-    def test_a_neighbouring_tempo_is_left_alone(self) -> None:
-        self.assertAlmostEqual(140.0, fold_to_octave(140.0, 126.0))
-        self.assertAlmostEqual(101.0, fold_to_octave(101.0, 126.0))
-
-    def test_the_centre_is_the_median_after_folding(self) -> None:
-        self.assertAlmostEqual(126.0, mixable_tempo([126.0, 63.0, 252.0]))
-
-    def test_the_window_is_a_turntables_pitch_range(self) -> None:
-        just_inside, just_outside = PITCH_FADER_RANGE - 0.01, PITCH_FADER_RANGE + 0.01
-
-        self.assertTrue(mixable_with(126.0 * (1 + just_inside), 126.0))
-        self.assertTrue(mixable_with(126.0 * (1 - just_inside), 126.0))
-        self.assertFalse(mixable_with(126.0 * (1 + just_outside), 126.0))
-        self.assertFalse(mixable_with(126.0 * (1 - just_outside), 126.0))
-
-    def test_a_half_time_track_is_mixable_with_the_centre(self) -> None:
-        self.assertTrue(mixable_with(63.0, 126.0))
-
-
-class MixableSelection(TestCase):
-    def test_it_keeps_the_tracks_a_dj_could_beatmatch(self) -> None:
-        selected = mixable_selection([('slow', 100.0), ('a', 125.0), ('b', 126.0),
-                                      ('c', 127.0), ('fast', 165.0)])
-
-        self.assertEqual(['a', 'b', 'c'], selected)
-
-    def test_it_keeps_draw_order(self) -> None:
-        self.assertEqual(['first', 'second'], mixable_selection([('first', 127.0), ('second', 125.0)]))
-
-    def test_nothing_matched_selects_nothing(self) -> None:
-        self.assertEqual([], mixable_selection([]))

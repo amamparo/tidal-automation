@@ -4,7 +4,7 @@ import unicodedata
 from collections import deque
 from functools import partial
 from threading import Lock
-from typing import Any, Callable, Deque, Dict, Iterable, List, Optional, Set, Tuple, TypeVar, cast
+from typing import Callable, Deque, Dict, Iterable, List, Optional, Set, Tuple, TypeVar, cast
 
 from injector import inject, singleton
 from requests.exceptions import (  # type: ignore[import-untyped]
@@ -68,21 +68,11 @@ MISSING_ARTIST: JsonObj = {'id': None, 'name': None}
 
 
 class NullArtistTolerantSession(Session):
-    def __init__(self, *args: Any, **kwargs: Any) -> None:
-        super().__init__(*args, **kwargs)
-        self.beats_per_minute: Dict[int, Optional[int]] = {}
-
     def parse_artist(self, obj: JsonObj) -> Artist:
         return super().parse_artist(obj or MISSING_ARTIST)
 
     def parse_artists(self, obj: List[JsonObj]) -> List[Artist]:
         return super().parse_artists(obj or [MISSING_ARTIST])
-
-    def parse_track(self, obj: JsonObj, album: Optional[Album] = None) -> Track:
-        track = super().parse_track(obj, album)
-        if track.id is not None:
-            self.beats_per_minute[track.id] = obj.get('bpm')
-        return track
 
 
 @singleton
@@ -171,9 +161,6 @@ class Tidal:
         arriving = [track_id for track_id in track_ids if track_id not in surviving]
         if arriving:
             self.__call_api(lambda: playlist.add(arriving, limit=len(arriving)))
-
-    def beats_per_minute(self, track: Track) -> Optional[int]:
-        return self.__tidal.beats_per_minute.get(track.id) if track.id is not None else None
 
     def find_equivalent_track(self, last_fm_track: LastFmTrack, match_version: bool = False) -> Optional[Track]:
         cache_key = (last_fm_track, match_version)
