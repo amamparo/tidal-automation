@@ -17,8 +17,8 @@ from src.playlist import (
     mix_weight,
     mixable_selection,
     mixable_with,
-    tightest_window,
     most_recommended,
+    tightest_window,
     time_to_seed_again,
     weigh_candidates,
     weighted_draw
@@ -293,7 +293,15 @@ class MixableSelection(TestCase):
 
         self.assertEqual(['timed'], selected)
 
-    def test_the_centre_comes_from_the_best_recommended_tracks(self) -> None:
+    def test_the_centre_comes_from_every_timed_track_not_the_first_playlist(self) -> None:
+        tempos: Dict[str, Optional[int]] = {'top': 100, 'also': 100, 'c': 130,
+                                            'd': 130, 'e': 130, 'f': 130, 'g': 130}
+
+        selected = mixable_selection(['top', 'also', 'c', 'd', 'e', 'f', 'g'], tempos.get, 2)
+
+        self.assertEqual(['c', 'd'], selected)
+
+    def test_a_tempo_outlier_is_excluded_from_the_selection(self) -> None:
         tempos = {'a': 126, 'b': 127, 'c': 125, 'outlier': 165}
 
         selected = mixable_selection(['a', 'b', 'c', 'outlier'], tempos.get, 3)

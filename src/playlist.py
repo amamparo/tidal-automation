@@ -133,7 +133,7 @@ def mixable_selection(ranked: List[str], tempo_of: Callable[[str], Optional[int]
              if (tempo := tempo_of(track_id)) is not None and tempo > 0]
     if not timed:
         return []
-    centre = centre_of_gravity([tempo for _, tempo in timed[:playlist_size]])
+    centre = centre_of_gravity([tempo for _, tempo in timed])
     beatmatchable = [(track_id, tempo_deviation(tempo, centre))
                      for track_id, tempo in timed if mixable_with(tempo, centre)]
     window = tightest_window([deviation for _, deviation in beatmatchable], playlist_size)
