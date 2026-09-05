@@ -2,7 +2,7 @@ import re
 from collections import defaultdict
 from dataclasses import dataclass
 from datetime import date
-from math import log, sqrt
+from math import log
 from random import Random
 from statistics import median
 from typing import Callable, Dict, List, Optional, Tuple
@@ -20,11 +20,7 @@ HOTTEST_MIX_WEIGHT = 5.0
 RECENCY_HALF_LIFE_DAYS = 180.0
 SEED_REQUESTS = 2
 PITCH_FADER_RANGE = 0.08
-MIXABLE_SPAN = sqrt(1.0 + PITCH_FADER_RANGE)
-OUTLIER_FENCE = 2.0
-BPM_RESOLUTION = 1.0
-OCTAVE = 2.0
-HALF_OCTAVE = sqrt(OCTAVE)
+MIXABLE_SPAN = 1.0 + PITCH_FADER_RANGE
 TITLE_QUALIFIER = re.compile(r'\s+[(\[].*$|\s+\d{1,3}$')
 
 
@@ -110,46 +106,30 @@ def most_recommended(recommended: Dict[str, List[float]]) -> List[str]:
     return sorted(recommended, key=consensus)
 
 
-def fold_to_octave(tempo: float, centre: float) -> float:
-    while tempo < centre / HALF_OCTAVE:
-        tempo *= OCTAVE
-    while tempo > centre * HALF_OCTAVE:
-        tempo /= OCTAVE
-    return tempo
+def tempo_span(tempos: List[float]) -> float:
+    return max(tempos) / min(tempos)
 
 
-def centre_of_gravity(tempos: List[float]) -> float:
-    centre = median(tempos)
-    return median([fold_to_octave(tempo, centre) for tempo in tempos])
+def keeps_the_span(tempo: float, tempos: List[float]) -> bool:
+    return tempo_span([*tempos, tempo]) <= MIXABLE_SPAN
 
 
-def mixable_with(tempo: float, centre: float) -> bool:
-    folded = fold_to_octave(tempo, centre)
-    return centre / MIXABLE_SPAN <= folded <= centre * MIXABLE_SPAN
-
-
-def outlier_fence(tempos: List[float]) -> Tuple[float, float]:
-    centre = median(tempos)
-    deviation = median([abs(tempo - centre) for tempo in tempos])
-    spread = deviation if deviation > 0.0 else BPM_RESOLUTION
-    return centre - OUTLIER_FENCE * spread, centre + OUTLIER_FENCE * spread
-
-
-def focused_selection(folded: List[TimedTrack], playlist_size: int) -> List[TimedTrack]:
-    selected = folded[:playlist_size]
+def annealed_selection(timed: List[TimedTrack], playlist_size: int) -> List[TimedTrack]:
+    selected = timed[:playlist_size]
     considered = len(selected)
-    while selected:
-        low, high = outlier_fence([track.tempo for track in selected])
-        inliers = [track for track in selected if low <= track.tempo <= high]
-        while len(inliers) < playlist_size and considered < len(folded):
-            candidate = folded[considered]
-            considered += 1
-            if low <= candidate.tempo <= high:
-                inliers.append(candidate)
-        if inliers == selected:
-            break
-        selected = inliers
-    return selected
+    while True:
+        tempos = [track.tempo for track in selected]
+        if tempos and tempo_span(tempos) > MIXABLE_SPAN:
+            centre = median(tempos)
+            furthest = max(reversed(selected), key=lambda track: abs(track.tempo - centre))
+            selected = [track for track in selected if track is not furthest]
+            continue
+        if len(selected) >= playlist_size or considered >= len(timed):
+            return selected
+        candidate = timed[considered]
+        considered += 1
+        if keeps_the_span(candidate.tempo, tempos):
+            selected.append(candidate)
 
 
 def mixable_selection(ranked: List[str], tempo_of: Callable[[str], Optional[int]],
@@ -158,15 +138,12 @@ def mixable_selection(ranked: List[str], tempo_of: Callable[[str], Optional[int]
              if (tempo := tempo_of(track_id)) is not None and tempo > 0]
     if not timed:
         return []
-    centre = centre_of_gravity([track.tempo for track in timed])
-    beatmatchable = [TimedTrack(track.track_id, fold_to_octave(track.tempo, centre))
-                     for track in timed if mixable_with(track.tempo, centre)]
-    if not beatmatchable:
+    selected = annealed_selection(timed, playlist_size)
+    if not selected:
         return []
-    selected = focused_selection(beatmatchable, playlist_size)
     tempos = sorted(track.tempo for track in selected)
-    print(f'tempo: {len(timed)} of {len(ranked)} timed, {len(beatmatchable)} beatmatchable, '
-          f'{len(selected)} focused between {tempos[0]:.0f} and {tempos[-1]:.0f} bpm')
+    print(f'tempo: {len(timed)} of {len(ranked)} timed, {len(selected)} annealed between '
+          f'{tempos[0]:.0f} and {tempos[-1]:.0f} bpm, {100 * (tempo_span(tempos) - 1):.1f}% span')
     return [track.track_id for track in selected]
 
 

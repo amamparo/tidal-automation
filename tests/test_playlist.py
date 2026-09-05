@@ -8,20 +8,15 @@ from src.last_fm import LastFmTrack
 from src.mixes_db import MixTrack, Tracklist
 from src.playlist import (
     HOTTEST_MIX_WEIGHT,
-    OUTLIER_FENCE,
     PITCH_FADER_RANGE,
     RECENCY_HALF_LIFE_DAYS,
     TimedTrack,
-    centre_of_gravity,
-    focused_selection,
-    fold_to_octave,
+    annealed_selection,
     gather_recommendations,
     is_same_recording,
     mix_weight,
     mixable_selection,
-    mixable_with,
     most_recommended,
-    outlier_fence,
     time_to_seed_again,
     weigh_candidates,
     weighted_draw
@@ -266,43 +261,6 @@ class SeedingBudget(TestCase):
         self.assertTrue(time_to_seed_again(stub_tidal({}), 0.0, PLAYLIST_SIZE))
 
 
-class MixableTempo(TestCase):
-    def test_half_and_double_time_are_the_same_tempo_to_a_dj(self) -> None:
-        self.assertAlmostEqual(CENTRE_BPM, fold_to_octave(63.0, CENTRE_BPM))
-        self.assertAlmostEqual(CENTRE_BPM, fold_to_octave(252.0, CENTRE_BPM))
-        self.assertAlmostEqual(CENTRE_BPM, fold_to_octave(CENTRE_BPM, CENTRE_BPM))
-
-    def test_a_neighbouring_tempo_is_left_alone(self) -> None:
-        self.assertAlmostEqual(140.0, fold_to_octave(140.0, CENTRE_BPM))
-        self.assertAlmostEqual(101.0, fold_to_octave(101.0, CENTRE_BPM))
-
-    def test_the_centre_is_the_median_after_folding(self) -> None:
-        self.assertAlmostEqual(CENTRE_BPM, centre_of_gravity([CENTRE_BPM, 63.0, 252.0]))
-
-    def test_no_two_mixable_tempos_differ_by_more_than_the_pitch_fader(self) -> None:
-        admitted = [fold_to_octave(float(tempo), CENTRE_BPM)
-                    for tempo in range(40, 400) if mixable_with(float(tempo), CENTRE_BPM)]
-
-        self.assertGreater(len(admitted), 1)
-        self.assertLessEqual(max(admitted) / min(admitted), 1.0 + PITCH_FADER_RANGE)
-
-    def test_a_half_time_tag_is_admitted_at_its_folded_tempo(self) -> None:
-        self.assertTrue(mixable_with(CENTRE_BPM / 2, CENTRE_BPM))
-        self.assertTrue(mixable_with(CENTRE_BPM * 2, CENTRE_BPM))
-
-
-    def test_the_centre_itself_is_always_mixable(self) -> None:
-        self.assertTrue(mixable_with(CENTRE_BPM, CENTRE_BPM))
-
-    def test_a_tempo_beyond_half_the_span_is_rejected(self) -> None:
-        just_outside = CENTRE_BPM * (1.0 + PITCH_FADER_RANGE)
-
-        self.assertFalse(mixable_with(just_outside, CENTRE_BPM))
-
-    def test_a_half_time_track_is_mixable_with_the_centre(self) -> None:
-        self.assertTrue(mixable_with(63.0, CENTRE_BPM))
-
-
 class MixableSelection(TestCase):
     def test_an_untimed_track_is_dropped_however_well_recommended(self) -> None:
         tempos = {'timed': 126, 'untimed': None}
@@ -311,13 +269,6 @@ class MixableSelection(TestCase):
 
         self.assertEqual(['timed'], selected)
 
-    def test_the_centre_comes_from_every_timed_track_not_the_first_playlist(self) -> None:
-        tempos: Dict[str, Optional[int]] = {'top': 100, 'also': 100, 'c': 130,
-                                            'd': 130, 'e': 130, 'f': 130, 'g': 130}
-
-        selected = mixable_selection(['top', 'also', 'c', 'd', 'e', 'f', 'g'], tempos.get, 2)
-
-        self.assertEqual(['c', 'd'], selected)
 
     def test_a_tempo_outlier_is_excluded_from_the_selection(self) -> None:
         tempos = {'a': 126, 'b': 127, 'c': 125, 'outlier': 165}
@@ -350,47 +301,6 @@ class MixableSelection(TestCase):
         self.assertEqual([], mixable_selection([], untimed.get, 1))
 
 
-class OutlierFence(TestCase):
-    def test_it_is_the_median_absolute_deviation_around_the_median(self) -> None:
-        low, high = outlier_fence([124.0, 125.0, 126.0, 127.0, 128.0])
-
-        self.assertAlmostEqual(126.0 - OUTLIER_FENCE * 1.0, low)
-        self.assertAlmostEqual(126.0 + OUTLIER_FENCE * 1.0, high)
-
-    def test_one_tempo_everywhere_still_leaves_room_to_refill(self) -> None:
-        low, high = outlier_fence([126.0] * 10)
-
-        self.assertLess(low, 126.0)
-        self.assertGreater(high, 126.0)
-
-
-class FocusedSelection(TestCase):
-    def test_the_most_recommended_are_kept_when_they_already_agree(self) -> None:
-        folded = [TimedTrack(f't{n}', 126.0 + n % 3) for n in range(20)]
-
-        self.assertEqual(folded[:10], focused_selection(folded, 10))
-
-    def test_an_outlier_is_replaced_by_the_next_recommended_inlier(self) -> None:
-        folded = folded_tracks(a=126.0, b=127.0, wild=200.0, c=125.0, d=126.0)
-
-        selected = focused_selection(folded, 4)
-
-        self.assertEqual(['a', 'b', 'c', 'd'], [track.track_id for track in selected])
-
-    def test_it_keeps_a_spread_rather_than_collapsing_onto_one_tempo(self) -> None:
-        folded = folded_tracks(a=126.0, b=124.0, c=128.0, d=125.0, e=127.0)
-
-        selected = focused_selection(folded, 5)
-
-        self.assertEqual(5, len(selected))
-        self.assertEqual(5, len({track.tempo for track in selected}))
-
-    def test_it_stops_when_the_pool_runs_out_rather_than_looping(self) -> None:
-        folded = folded_tracks(a=126.0, b=127.0, wild=400.0)
-
-        self.assertEqual(['a', 'b'], [track.track_id for track in focused_selection(folded, 3)])
-
-
 class SelectionSpan(TestCase):
     def test_the_whole_selection_fits_inside_one_pitch_fader(self) -> None:
         tempos: Dict[str, Optional[int]] = {f't{n}': t for n, t in enumerate(
@@ -398,8 +308,52 @@ class SelectionSpan(TestCase):
         ranked = list(tempos)
 
         selected = mixable_selection(ranked, tempos.get, 6)
-        centre = centre_of_gravity([float(tempo or 0) for tempo in tempos.values()])
-        chosen = [fold_to_octave(float(tempos[track_id] or 0), centre) for track_id in selected]
+        chosen = [float(tempos[track_id] or 0) for track_id in selected]
 
         self.assertEqual(6, len(selected))
         self.assertLessEqual(max(chosen) / min(chosen), 1.0 + PITCH_FADER_RANGE)
+
+
+def timed_tracks(**tempos: float) -> List[TimedTrack]:
+    return [TimedTrack(track_id, tempo) for track_id, tempo in tempos.items()]
+
+
+class AnnealedSelection(TestCase):
+    def test_the_most_recommended_are_kept_when_they_already_fit(self) -> None:
+        timed = timed_tracks(a=126.0, b=124.0, c=128.0, d=130.0, e=200.0)
+
+        self.assertEqual(['a', 'b', 'c', 'd'],
+                         [track.track_id for track in annealed_selection(timed, 4)])
+
+    def test_an_outlier_is_dropped_and_backfilled_from_further_down(self) -> None:
+        timed = timed_tracks(a=126.0, wild=200.0, b=124.0, c=128.0)
+
+        selected = [track.track_id for track in annealed_selection(timed, 3)]
+
+        self.assertEqual(['a', 'b', 'c'], selected)
+
+    def test_the_selection_never_exceeds_the_pitch_fader(self) -> None:
+        timed = timed_tracks(a=120.0, b=140.0, c=121.0, d=122.0, e=123.0)
+
+        selected = annealed_selection(timed, 4)
+        tempos = [track.tempo for track in selected]
+
+        self.assertEqual(4, len(selected))
+        self.assertLessEqual(max(tempos) / min(tempos), 1.0 + PITCH_FADER_RANGE)
+
+    def test_it_keeps_a_spread_rather_than_one_tempo(self) -> None:
+        timed = timed_tracks(a=122.0, b=126.0, c=130.0, d=124.0)
+
+        tempos = {track.tempo for track in annealed_selection(timed, 4)}
+
+        self.assertEqual(4, len(tempos))
+
+    def test_a_pool_that_cannot_fill_returns_what_fits(self) -> None:
+        timed = timed_tracks(a=126.0, wild=300.0)
+
+        self.assertEqual(['a'], [track.track_id for track in annealed_selection(timed, 2)])
+
+    def test_an_untimed_track_is_never_selected(self) -> None:
+        tempos: Dict[str, Optional[int]] = {'timed': 126, 'untimed': None, 'zero': 0}
+
+        self.assertEqual(['timed'], mixable_selection(['untimed', 'zero', 'timed'], tempos.get, 3))
