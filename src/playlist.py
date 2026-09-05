@@ -110,8 +110,11 @@ def tempo_span(tempos: List[float]) -> float:
     return max(tempos) / min(tempos)
 
 
-def keeps_the_span(tempo: float, tempos: List[float]) -> bool:
-    return tempo_span([*tempos, tempo]) <= MIXABLE_SPAN
+def without_the_least_recommended_outlier(selected: List[TimedTrack]) -> List[TimedTrack]:
+    centre = median(track.tempo for track in selected)
+    least_recommended_first = reversed(selected)
+    dropped = max(least_recommended_first, key=lambda track: abs(track.tempo - centre))
+    return [track for track in selected if track is not dropped]
 
 
 def annealed_selection(timed: List[TimedTrack], playlist_size: int) -> List[TimedTrack]:
@@ -120,15 +123,13 @@ def annealed_selection(timed: List[TimedTrack], playlist_size: int) -> List[Time
     while True:
         tempos = [track.tempo for track in selected]
         if tempos and tempo_span(tempos) > MIXABLE_SPAN:
-            centre = median(tempos)
-            furthest = max(reversed(selected), key=lambda track: abs(track.tempo - centre))
-            selected = [track for track in selected if track is not furthest]
+            selected = without_the_least_recommended_outlier(selected)
             continue
         if len(selected) >= playlist_size or considered >= len(timed):
             return selected
         candidate = timed[considered]
         considered += 1
-        if keeps_the_span(candidate.tempo, tempos):
+        if tempo_span([*tempos, candidate.tempo]) <= MIXABLE_SPAN:
             selected.append(candidate)
 
 
@@ -136,8 +137,6 @@ def mixable_selection(ranked: List[str], tempo_of: Callable[[str], Optional[int]
                       playlist_size: int) -> List[str]:
     timed = [TimedTrack(track_id, float(tempo)) for track_id in ranked
              if (tempo := tempo_of(track_id)) is not None and tempo > 0]
-    if not timed:
-        return []
     selected = annealed_selection(timed, playlist_size)
     if not selected:
         return []

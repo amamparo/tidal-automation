@@ -69,7 +69,8 @@ def recorded_on(mix_title: str) -> Optional[date]:
     stated_month = int(month_token) if month_token and month_token.isdigit() else MID_YEAR_MONTH
     stated_day = int(day_token) if day_token and day_token.isdigit() else MID_MONTH_DAY
     month = min(max(stated_month, 1), 12)
-    return date(year, month, min(max(stated_day, 1), monthrange(year, month)[1]))
+    last_day_of_month = monthrange(year, month)[1]
+    return date(year, month, min(max(stated_day, 1), last_day_of_month))
 
 
 def tracklist_lines(wikitext: str) -> List[str]:
@@ -106,7 +107,8 @@ def parse_line(line: str) -> Optional[MixTrack]:
     title = re.sub(r'\s+', ' ', title).strip()
     if not artist or artist.startswith('?') or not title or title.startswith('?'):
         return None
-    if len(re.sub(r'[^a-zA-Z0-9]', '', title)) < MINIMUM_TITLE_LENGTH:
+    letters_and_digits = re.sub(r'[^a-zA-Z0-9]', '', title)
+    if len(letters_and_digits) < MINIMUM_TITLE_LENGTH:
         return None
     return MixTrack(artist=artist, title=title)
 

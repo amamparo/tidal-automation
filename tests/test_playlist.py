@@ -40,14 +40,13 @@ LEADER_DRAWS = 300
 MARGINAL_DRAWS = 10000
 
 PLAYLIST_SIZE = 100
-CENTRE_BPM = 126.0
 
 
 def mix(recorded_on: date, *tracks: MixTrack) -> Tracklist:
     return Tracklist(recorded_on=recorded_on, tracks=list(tracks))
 
 
-def folded_tracks(**tempos: float) -> List[TimedTrack]:
+def timed_tracks(**tempos: float) -> List[TimedTrack]:
     return [TimedTrack(track_id, tempo) for track_id, tempo in tempos.items()]
 
 
@@ -194,7 +193,7 @@ class MostRecommended(TestCase):
         self.assertEqual(forwards, backwards)
         self.assertEqual(['a', 'b'], forwards)
 
-    def test_it_ranks_everything_so_the_tempo_filter_can_backfill(self) -> None:
+    def test_it_ranks_everything_so_the_anneal_can_backfill(self) -> None:
         recommended = {str(track_id): [1.0] for track_id in range(500)}
 
         self.assertEqual(500, len(most_recommended(recommended)))
@@ -269,7 +268,6 @@ class MixableSelection(TestCase):
 
         self.assertEqual(['timed'], selected)
 
-
     def test_a_tempo_outlier_is_excluded_from_the_selection(self) -> None:
         tempos = {'a': 126, 'b': 127, 'c': 125, 'outlier': 165}
 
@@ -277,7 +275,7 @@ class MixableSelection(TestCase):
 
         self.assertEqual(['a', 'b', 'c'], selected)
 
-    def test_a_track_the_window_drops_is_backfilled_from_further_down(self) -> None:
+    def test_a_track_the_span_drops_is_backfilled_from_further_down(self) -> None:
         tempos = {'a': 126, 'b': 127, 'far': 165, 'backfill': 125}
 
         selected = mixable_selection(['a', 'b', 'far', 'backfill'], tempos.get, 3)
@@ -289,33 +287,26 @@ class MixableSelection(TestCase):
 
         self.assertEqual(['first', 'second'], mixable_selection(['first', 'second'], tempos.get, 2))
 
-    def test_a_zero_tempo_is_untimed_rather_than_an_endless_fold(self) -> None:
-        tempos: Dict[str, Optional[int]] = {'zero': 0, 'timed': 126}
+    def test_a_zero_tempo_is_untimed(self) -> None:
+        tempos = {'zero': 0, 'timed': 126}
 
         self.assertEqual(['timed'], mixable_selection(['zero', 'timed'], tempos.get, 2))
+
+    def test_the_whole_selection_fits_inside_one_pitch_fader(self) -> None:
+        tempos = {f't{n}': tempo for n, tempo in enumerate(
+            [126, 122, 130, 118, 134, 127, 124, 129, 121, 131, 125, 128])}
+
+        selected = mixable_selection(list(tempos), tempos.get, 6)
+        chosen = [tempos[track_id] for track_id in selected]
+
+        self.assertEqual(6, len(selected))
+        self.assertLessEqual(max(chosen) / min(chosen), 1.0 + PITCH_FADER_RANGE)
 
     def test_nothing_timed_selects_nothing(self) -> None:
         untimed: Dict[str, Optional[int]] = {'a': None}
 
         self.assertEqual([], mixable_selection(['a'], untimed.get, 1))
         self.assertEqual([], mixable_selection([], untimed.get, 1))
-
-
-class SelectionSpan(TestCase):
-    def test_the_whole_selection_fits_inside_one_pitch_fader(self) -> None:
-        tempos: Dict[str, Optional[int]] = {f't{n}': t for n, t in enumerate(
-            [126, 122, 130, 118, 134, 127, 124, 129, 121, 131, 125, 128])}
-        ranked = list(tempos)
-
-        selected = mixable_selection(ranked, tempos.get, 6)
-        chosen = [float(tempos[track_id] or 0) for track_id in selected]
-
-        self.assertEqual(6, len(selected))
-        self.assertLessEqual(max(chosen) / min(chosen), 1.0 + PITCH_FADER_RANGE)
-
-
-def timed_tracks(**tempos: float) -> List[TimedTrack]:
-    return [TimedTrack(track_id, tempo) for track_id, tempo in tempos.items()]
 
 
 class AnnealedSelection(TestCase):
@@ -352,8 +343,3 @@ class AnnealedSelection(TestCase):
         timed = timed_tracks(a=126.0, wild=300.0)
 
         self.assertEqual(['a'], [track.track_id for track in annealed_selection(timed, 2)])
-
-    def test_an_untimed_track_is_never_selected(self) -> None:
-        tempos: Dict[str, Optional[int]] = {'timed': 126, 'untimed': None, 'zero': 0}
-
-        self.assertEqual(['timed'], mixable_selection(['untimed', 'zero', 'timed'], tempos.get, 3))

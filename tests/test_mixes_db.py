@@ -7,6 +7,7 @@ from src.mixes_db import WINDOW_YEARS, MixTrack, date_window, parse_tracklist, r
 from src.update_darkroom import search_query
 
 FIXTURES = Path(__file__).parent / 'fixtures' / 'mixes_db'
+TODAY = date(2026, 9, 3)
 
 
 def parse_lines(*lines: str) -> List[MixTrack]:
@@ -160,21 +161,22 @@ class TracklistParsing(TestCase):
         list_tracks = parse_tracklist(read_fixture('list_format.txt'))
         both_tracks = parse_tracklist(read_fixture('both_format.txt'))
 
-        self.assertEqual([17, 17, 6], [len(hash_tracks), len(list_tracks), len(both_tracks)])
+        self.assertEqual(17, len(hash_tracks))
+        self.assertEqual(17, len(list_tracks))
+        self.assertEqual(6, len(both_tracks))
         self.assertIn(MixTrack('DeepChord', 'Point Reyes'), hash_tracks)
         self.assertIn(MixTrack('Korridor', 'Binocular Observer (Ness Remix)'), list_tracks)
         self.assertIn(MixTrack('Schulz Audio', 'Riddim Room'), both_tracks)
 
 
 class DateWindow(TestCase):
-    def test_date_window(self) -> None:
-        self.assertEqual('2026,2025-12,2025-11,2025-10,2025-09', date_window(date(2026, 9, 3)))
+    def test_it_names_this_year_then_the_months_before_it(self) -> None:
+        self.assertEqual('2026,2025-12,2025-11,2025-10,2025-09', date_window(TODAY))
 
     def test_the_window_reaches_back_exactly_one_year(self) -> None:
-        today = date(2026, 9, 3)
-        earliest = date_window(today).rsplit(',', maxsplit=1)[-1]
+        earliest = date_window(TODAY).rsplit(',', maxsplit=1)[-1]
 
-        self.assertEqual(f'{today.year - WINDOW_YEARS}-{today.month:02d}', earliest)
+        self.assertEqual(f'{TODAY.year - WINDOW_YEARS}-{TODAY.month:02d}', earliest)
 
     def test_date_window_in_january(self) -> None:
         earliest_year = 2027 - WINDOW_YEARS
@@ -196,12 +198,10 @@ class DateWindow(TestCase):
 
 
 class SearchQuery(TestCase):
-    def test_search_query(self) -> None:
-        today = date(2026, 9, 3)
-
+    def test_it_intersects_both_styles_inside_the_date_window(self) -> None:
         self.assertEqual(
-            f'style:"Dub Techno" style:Minimal -tracklist:none date:{date_window(today)}',
-            search_query(today)
+            f'style:"Dub Techno" style:Minimal -tracklist:none date:{date_window(TODAY)}',
+            search_query(TODAY)
         )
 
 
