@@ -3,7 +3,7 @@ from pathlib import Path
 from typing import List, Tuple
 from unittest import TestCase
 
-from src.mixes_db import MixTrack, date_window, parse_tracklist, recorded_on
+from src.mixes_db import WINDOW_YEARS, MixTrack, date_window, parse_tracklist, recorded_on
 from src.update_dub_techno import search_query
 
 FIXTURES = Path(__file__).parent / 'fixtures' / 'mixes_db'
@@ -168,29 +168,30 @@ class TracklistParsing(TestCase):
 
 class DateWindow(TestCase):
     def test_date_window(self) -> None:
-        self.assertEqual('2026,2025-12,2025-11,2025-10,2025-09', date_window(date(2026, 9, 3)))
+        self.assertEqual('2026,2025,2024-12,2024-11,2024-10,2024-09', date_window(date(2026, 9, 3)))
 
     def test_date_window_in_january(self) -> None:
         tokens = date_window(date(2027, 1, 2)).split(',')
 
-        self.assertEqual(13, len(tokens))
-        self.assertEqual('2027', tokens[0])
-        self.assertEqual([f'2026-{month:02d}' for month in reversed(range(1, 13))], tokens[1:])
+        self.assertEqual(WINDOW_YEARS + 12, len(tokens))
+        self.assertEqual(['2027', '2026'], tokens[:WINDOW_YEARS])
+        self.assertEqual([f'2025-{month:02d}' for month in reversed(range(1, 13))], tokens[WINDOW_YEARS:])
 
-    def test_date_window_reaches_back_through_the_previous_year(self) -> None:
+    def test_date_window_is_whole_years_then_trailing_months(self) -> None:
         for month in range(1, 13):
             with self.subTest(month=month):
                 tokens = date_window(date(2027, month, 1)).split(',')
 
-                self.assertEqual('2027', tokens[0])
-                self.assertEqual([f'2026-{trailing:02d}' for trailing in reversed(range(month, 13))], tokens[1:])
+                self.assertEqual([str(2027 - back) for back in range(WINDOW_YEARS)], tokens[:WINDOW_YEARS])
+                self.assertEqual([f'{2027 - WINDOW_YEARS}-{trailing:02d}'
+                                  for trailing in reversed(range(month, 13))], tokens[WINDOW_YEARS:])
 
 
 class SearchQuery(TestCase):
     def test_search_query(self) -> None:
         self.assertEqual(
             'style:"Dub Techno" style:Minimal -style:House -tracklist:none '
-            'date:2026,2025-12,2025-11,2025-10,2025-09',
+            'date:2026,2025,2024-12,2024-11,2024-10,2024-09',
             search_query(date(2026, 9, 3))
         )
 

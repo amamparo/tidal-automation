@@ -34,7 +34,7 @@ Explorer query so far has an equivalent `list=search` query that is a strict sup
 Explorer's `style=` codes are groups, not categories — `TA` is "Techno / Acid".
 
 `titles=` accepts 50 per request for anonymous clients. Errors arrive as HTTP 200 with an `error` object,
-so check the body, not just the status. `robots.txt` sets `Crawl-delay: 4`. See `PLAN.md` for the details.
+so check the body, not just the status. `robots.txt` sets `Crawl-delay: 4`.
 
 ## Development Commands
 

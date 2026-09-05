@@ -14,6 +14,7 @@ REQUEST_TIMEOUT = (5.0, 30.0)
 CRAWL_DELAY_SECONDS = 4
 TITLES_PER_REQUEST = 50
 MINIMUM_SEARCH_HITS = 10
+WINDOW_YEARS = 2
 MINIMUM_TITLE_LENGTH = 3
 MID_YEAR_MONTH = 7
 MID_MONTH_DAY = 15
@@ -54,8 +55,10 @@ class Tracklist:
 
 
 def date_window(today: date) -> str:
-    trailing_months = [f'{today.year - 1}-{month:02d}' for month in reversed(range(today.month, 13))]
-    return ','.join([str(today.year), *trailing_months])
+    earliest_year = today.year - WINDOW_YEARS
+    whole_years = [str(year) for year in range(today.year, earliest_year, -1)]
+    trailing_months = [f'{earliest_year}-{month:02d}' for month in reversed(range(today.month, 13))]
+    return ','.join([*whole_years, *trailing_months])
 
 
 def recorded_on(mix_title: str) -> Optional[date]:
