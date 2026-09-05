@@ -279,14 +279,25 @@ class MixableTempo(TestCase):
     def test_the_centre_is_the_median_after_folding(self) -> None:
         self.assertAlmostEqual(CENTRE_BPM, centre_of_gravity([CENTRE_BPM, 63.0, 252.0]))
 
-    def test_the_window_is_a_turntables_pitch_range(self) -> None:
-        window = CENTRE_BPM * PITCH_FADER_RANGE
-        inside, outside = window * 0.99, window * 1.01
+    def test_no_two_mixable_tempos_differ_by_more_than_the_pitch_fader(self) -> None:
+        admitted = [fold_to_octave(float(tempo), CENTRE_BPM)
+                    for tempo in range(40, 400) if mixable_with(float(tempo), CENTRE_BPM)]
 
-        self.assertTrue(mixable_with(CENTRE_BPM + inside, CENTRE_BPM))
-        self.assertTrue(mixable_with(CENTRE_BPM - inside, CENTRE_BPM))
-        self.assertFalse(mixable_with(CENTRE_BPM + outside, CENTRE_BPM))
-        self.assertFalse(mixable_with(CENTRE_BPM - outside, CENTRE_BPM))
+        self.assertGreater(len(admitted), 1)
+        self.assertLessEqual(max(admitted) / min(admitted), 1.0 + PITCH_FADER_RANGE)
+
+    def test_a_half_time_tag_is_admitted_at_its_folded_tempo(self) -> None:
+        self.assertTrue(mixable_with(CENTRE_BPM / 2, CENTRE_BPM))
+        self.assertTrue(mixable_with(CENTRE_BPM * 2, CENTRE_BPM))
+
+
+    def test_the_centre_itself_is_always_mixable(self) -> None:
+        self.assertTrue(mixable_with(CENTRE_BPM, CENTRE_BPM))
+
+    def test_a_tempo_beyond_half_the_span_is_rejected(self) -> None:
+        just_outside = CENTRE_BPM * (1.0 + PITCH_FADER_RANGE)
+
+        self.assertFalse(mixable_with(just_outside, CENTRE_BPM))
 
     def test_a_half_time_track_is_mixable_with_the_centre(self) -> None:
         self.assertTrue(mixable_with(63.0, CENTRE_BPM))
@@ -378,3 +389,17 @@ class FocusedSelection(TestCase):
         folded = folded_tracks(a=126.0, b=127.0, wild=400.0)
 
         self.assertEqual(['a', 'b'], [track.track_id for track in focused_selection(folded, 3)])
+
+
+class SelectionSpan(TestCase):
+    def test_the_whole_selection_fits_inside_one_pitch_fader(self) -> None:
+        tempos: Dict[str, Optional[int]] = {f't{n}': t for n, t in enumerate(
+            [126, 122, 130, 118, 134, 127, 124, 129, 121, 131, 125, 128])}
+        ranked = list(tempos)
+
+        selected = mixable_selection(ranked, tempos.get, 6)
+        centre = centre_of_gravity([float(tempo or 0) for tempo in tempos.values()])
+        chosen = [fold_to_octave(float(tempos[track_id] or 0), centre) for track_id in selected]
+
+        self.assertEqual(6, len(selected))
+        self.assertLessEqual(max(chosen) / min(chosen), 1.0 + PITCH_FADER_RANGE)

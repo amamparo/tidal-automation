@@ -20,6 +20,7 @@ HOTTEST_MIX_WEIGHT = 5.0
 RECENCY_HALF_LIFE_DAYS = 180.0
 SEED_REQUESTS = 2
 PITCH_FADER_RANGE = 0.08
+MIXABLE_SPAN = sqrt(1.0 + PITCH_FADER_RANGE)
 OUTLIER_FENCE = 2.0
 BPM_RESOLUTION = 1.0
 OCTAVE = 2.0
@@ -123,7 +124,8 @@ def centre_of_gravity(tempos: List[float]) -> float:
 
 
 def mixable_with(tempo: float, centre: float) -> bool:
-    return abs(fold_to_octave(tempo, centre) - centre) <= centre * PITCH_FADER_RANGE
+    folded = fold_to_octave(tempo, centre)
+    return centre / MIXABLE_SPAN <= folded <= centre * MIXABLE_SPAN
 
 
 def outlier_fence(tempos: List[float]) -> Tuple[float, float]:
