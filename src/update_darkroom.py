@@ -28,8 +28,8 @@ def main(environment: Environment, tidal: Tidal, mixes_db: MixesDb, last_fm: Las
         last_fm,
         discogs,
         query=search_query(today),
-        playlist_id=environment.require('DUB_TECHNO_PLAYLIST_ID'),
-        playlist_size=int(environment.require('DUB_TECHNO_SIZE')),
+        playlist_id=environment.require('DARKROOM_PLAYLIST_ID'),
+        playlist_size=int(environment.require('DARKROOM_SIZE')),
         today=today,
         seconds_left=seconds_left
     )

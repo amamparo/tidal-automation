@@ -3,7 +3,7 @@
 Rebuilds two Tidal playlists on a daily schedule, each as its own AWS Lambda deployed with CDK:
 
 * **Daily Blend** — from Tidal's Daily Discover and New Arrivals mixes plus last.fm recommendations.
-* **Dub Techno** — from the tracklists of the currently hottest DJ mixes on
+* **Darkroom** — from the tracklists of the currently hottest DJ mixes on
   [MixesDB](https://www.mixesdb.com) tagged **both** Dub Techno and Minimal, picked by a weighted lottery
   that favours hotter and more recent mixes and how closely each artist fits the corpus.
 
@@ -29,8 +29,8 @@ Local runs read these from a `.env` in the project root:
 * `NEW_ARRIVALS_MIX_ID` — the Tidal mix the blend is topped up from, alongside last.fm
 * `DAILY_BLEND_PLAYLIST_ID` — the playlist to rewrite
 * `DAILY_BLEND_SIZE` — how many tracks to fill it up to
-* `DUB_TECHNO_PLAYLIST_ID` — the Dub Techno playlist to rewrite; create it by hand in Tidal first
-* `DUB_TECHNO_SIZE` — how many tracks to fill it up to
+* `DARKROOM_PLAYLIST_ID` — the Darkroom playlist to rewrite; create it by hand in Tidal first
+* `DARKROOM_SIZE` — how many tracks to fill it up to
 
 The deployed Lambda takes the same settings from `aws/main.py`, apart from the refresh token,
 which it reads from its Secrets Manager secret. CDK creates that secret with a generated placeholder
@@ -39,7 +39,7 @@ value, so after the first `just deploy` set it to `{"TIDAL_REFRESH_TOKEN": "<tok
 ## Run locally
 ```shell
 just daily-blend
-just dub-techno
+just darkroom
 ```
 
 ## Checks

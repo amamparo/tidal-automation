@@ -39,5 +39,5 @@ token:
 daily-blend:
     {{ python }} -m src.update_daily_blend
 
-dub-techno:
-    {{ python }} -m src.update_dub_techno
+darkroom:
+    {{ python }} -m src.update_darkroom

@@ -4,7 +4,7 @@ from typing import List, Tuple
 from unittest import TestCase
 
 from src.mixes_db import WINDOW_YEARS, MixTrack, date_window, parse_tracklist, recorded_on
-from src.update_dub_techno import search_query
+from src.update_darkroom import search_query
 
 FIXTURES = Path(__file__).parent / 'fixtures' / 'mixes_db'
 

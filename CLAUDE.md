@@ -7,9 +7,9 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 This is a Tidal music automation service that rebuilds Tidal playlists on a daily schedule. It deploys as AWS Lambda functions via AWS CDK:
 
 * `src/update_daily_blend.py` — a "Daily Blend" from Tidal mixes plus last.fm recommendations.
-* `src/update_dub_techno.py` — a "Dub Techno" playlist from MixesDB mix tracklists.
+* `src/update_darkroom.py` — a "Darkroom" playlist from MixesDB mix tracklists.
 
-`src/playlist.py` holds the weighted-lottery selection and Tidal resolution; `update_dub_techno.py` is a
+`src/playlist.py` holds the weighted-lottery selection and Tidal resolution; `update_darkroom.py` is a
 thin wrapper supplying a MixesDB search query, a playlist id and a size.
 
 Both run on staggered 15-minute intervals from 10:00 UTC, which is 04:00 Chicago in winter and
@@ -20,7 +20,7 @@ Both run on staggered 15-minute intervals from 10:00 UTC, which is 04:00 Chicago
 MixesDB's `Special:Search` page renders its results **client-side**, so it cannot be scraped. Use the
 MediaWiki JSON API at `https://www.mixesdb.com/w/api.php`, which honours MixesDB's custom search keywords
 (`style:`, `date:`, `hasplayer`, `-tracklist:none`). `srsort=hotness_desc` works; bare `hotness` does not.
-There is **no OR syntax between terms** — `|`, `,` and `OR` all behave as AND. The Dub Techno playlist uses
+There is **no OR syntax between terms** — `|`, `,` and `OR` all behave as AND. The Darkroom playlist uses
 that deliberately: `style:"Dub Techno" style:Minimal` is the *intersection* of the two tags, which is what
 turns a 136-mix and a 152-mix corpus into the 15 mixes carrying both. A genuine union would still mean one
 request per style merged client-side; that was tried and reverted. **Inside a single keyword the comma is a

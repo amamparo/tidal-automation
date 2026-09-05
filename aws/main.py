@@ -16,9 +16,9 @@ DAILY_BLEND_ENVIRONMENT = {
     'DAILY_BLEND_SIZE': '100',
 }
 
-DUB_TECHNO_ENVIRONMENT = {
-    'DUB_TECHNO_PLAYLIST_ID': '70bf74d2-2b2f-4470-8d0d-582a18fdd2bf',
-    'DUB_TECHNO_SIZE': '100',
+DARKROOM_ENVIRONMENT = {
+    'DARKROOM_PLAYLIST_ID': '70bf74d2-2b2f-4470-8d0d-582a18fdd2bf',
+    'DARKROOM_SIZE': '100',
 }
 
 
@@ -50,33 +50,33 @@ class TidalAutomation(Stack):
             targets=[LambdaFunction(update_daily_blend)]
         )
 
-        update_dub_techno = DockerImageFunction(
+        update_darkroom = DockerImageFunction(
             self,
-            'UpdateDubTechno',
+            'UpdateDarkroom',
             memory_size=256,
             code=DockerImageCode.from_image_asset(
                 directory=getcwd(),
                 platform=Platform.LINUX_ARM64,
-                cmd=['src.update_dub_techno.lambda_handler']
+                cmd=['src.update_darkroom.lambda_handler']
             ),
             architecture=Architecture.ARM_64,
-            environment={'SECRET_ARN': secret.secret_arn, **DUB_TECHNO_ENVIRONMENT},
+            environment={'SECRET_ARN': secret.secret_arn, **DARKROOM_ENVIRONMENT},
             reserved_concurrent_executions=1,
             retry_attempts=0,
             timeout=Duration.minutes(15)
         )
-        secret.grant_read(update_dub_techno)
+        secret.grant_read(update_darkroom)
 
         Rule(
             self,
-            'UpdateDubTechnoSchedule',
+            'UpdateDarkroomSchedule',
             schedule=Schedule.cron(hour='10', minute='15'),
-            targets=[LambdaFunction(update_dub_techno)]
+            targets=[LambdaFunction(update_darkroom)]
         )
 
         CfnOutput(self, 'SecretArn', value=secret.secret_arn)
         CfnOutput(self, 'StackProvidedNames',
-                  value=','.join(sorted({*DAILY_BLEND_ENVIRONMENT, *DUB_TECHNO_ENVIRONMENT})))
+                  value=','.join(sorted({*DAILY_BLEND_ENVIRONMENT, *DARKROOM_ENVIRONMENT})))
 
 
 if __name__ == '__main__':
