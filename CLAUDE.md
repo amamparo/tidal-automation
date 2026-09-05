@@ -15,7 +15,11 @@ query, a playlist id and a size.
 
 Darkroom works by consensus rather than by scoring tracks. It widens a MixesDB date window from 12 months
 until the corpus holds at least `playlist_size` distinct candidates, reads a Tidal radio for every
-candidate, and ranks the returned tracks by **how many independent radios returned each one**. Tracks with
+candidate, and ranks the returned tracks by **how strongly the radios vouch for them** — each radio casts a
+vote of `1 - position/length`, since Tidal returns a radio in relevance order and a track returned only near
+the bottom is weakly related. Candidates are taken round-robin across mixes rather than mix by mix, so when
+the corpus is larger than the clock allows every mix still contributes seeds; consensus depends on radios
+being *independent*, and 500 seeds spread over 118 mixes vouch far better than 500 drawn from the hottest 30. Tracks with
 no Tidal bpm are dropped, and the top of that ranking is then annealed to a tempo span: while the widest
 tempo ratio in the selection exceeds the ±8% a Technics pitch fader can bridge, the track furthest from the
 selection's median is dropped — least-recommended first on ties — and replaced by the next most-recommended
@@ -44,10 +48,15 @@ Both run on staggered 15-minute intervals from 10:00 UTC, which is 04:00 Chicago
 MixesDB's `Special:Search` page renders its results **client-side**, so it cannot be scraped. Use the
 MediaWiki JSON API at `https://www.mixesdb.com/w/api.php`, which honours MixesDB's custom search keywords
 (`style:`, `date:`, `hasplayer`, `-tracklist:none`). `srsort=hotness_desc` works; bare `hotness` does not.
-There is **no OR syntax between terms** — `|`, `,` and `OR` all behave as AND. The Darkroom playlist uses
-that deliberately: `style:"Dub Techno" style:Minimal` is the *intersection* of the two tags, which is what
-turns a 136-mix and a 152-mix corpus into the handful of mixes carrying both. A genuine union would still mean one
-request per style merged client-side; that was tried and reverted. **Inside a single keyword the comma is a
+There is **no OR syntax between terms** — `|`, `,` and `OR` all behave as AND, so multiple `style:` terms are
+an *intersection*. Darkroom asked for `style:"Dub Techno" style:Minimal` and no longer does: measured over the
+same 12 months, the intersection is 15 mixes while `style:"Dub Techno"` alone is 123, and the larger corpus is
+also the purer one. Of those 118 usable mixes only 19 carry any house tag, the rest co-tagging Deep Techno,
+Techno and Ambient, and the artist head is Rhythm & Sound, Luigi Tozzi, Basic Channel, Amotik and Polygonia —
+where the intersection corpus contained Bob Marley and "Is It Disco?". `minimal` was the less distinguishing
+tag anyway (tag rarity 0.627 against 1.238 for `dub techno`) and was pulling in minimal-*house* mixes. A
+genuine union across styles would still mean one request per style merged client-side; that was tried and
+reverted. **Inside a single keyword the comma is a
 value list, not AND**: `date:2026,2025-12,2025-11` matches a mix from any one of them, and token order does
 not change the result set. **Negation works**: a leading `-` on `style:` excludes server-side, verified 0 leaks over 500 results.
 `srlimit=max` caps anonymous results at 500, so a query with more hits is silently truncated to the 500

@@ -311,11 +311,28 @@ class CorpusCandidates(TestCase):
 
         self.assertEqual([shared, other], candidates)
 
-    def test_it_keeps_the_order_the_mixes_were_ranked_in(self) -> None:
+    def test_it_takes_one_track_from_every_mix_before_taking_a_second(self) -> None:
+        hottest = [MixTrack(artist='Basic Channel', title=f'Q{n}') for n in range(3)]
+        coldest = [MixTrack(artist='Quantec', title=f'W{n}') for n in range(3)]
+
+        candidates = candidates_from([mix(TODAY, *hottest), mix(TODAY, *coldest)])
+
+        self.assertEqual([hottest[0], coldest[0], hottest[1], coldest[1], hottest[2], coldest[2]],
+                         candidates)
+
+    def test_the_hottest_mix_still_leads(self) -> None:
         hottest = MixTrack(artist='Basic Channel', title='Q1.1')
         coldest = MixTrack(artist='Quantec', title='Wintermute')
 
         self.assertEqual([hottest, coldest], candidates_from([mix(TODAY, hottest), mix(TODAY, coldest)]))
+
+    def test_a_short_mix_does_not_cut_a_long_one_short(self) -> None:
+        short = MixTrack(artist='Yagya', title='only')
+        long = [MixTrack(artist='Rrose', title=f't{n}') for n in range(3)]
+
+        candidates = candidates_from([mix(TODAY, short), mix(TODAY, *long)])
+
+        self.assertEqual([short, *long], candidates)
 
     def test_no_tracklists_yield_no_candidates(self) -> None:
         self.assertEqual([], candidates_from([]))

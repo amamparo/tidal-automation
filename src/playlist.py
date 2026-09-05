@@ -1,6 +1,7 @@
 import re
 from collections import defaultdict
 from dataclasses import dataclass
+from itertools import zip_longest
 from statistics import median
 from typing import Callable, Dict, List, Optional, Tuple
 
@@ -26,7 +27,8 @@ class TimedTrack:
 
 
 def candidates_from(tracklists: List[Tracklist]) -> List[MixTrack]:
-    return list(dict.fromkeys(track for tracklist in tracklists for track in tracklist.tracks))
+    round_robin = zip_longest(*(tracklist.tracks for tracklist in tracklists))
+    return list(dict.fromkeys(track for turn in round_robin for track in turn if track))
 
 
 def is_same_recording(mix_title: str, found_name: str) -> bool:
