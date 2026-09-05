@@ -2,6 +2,7 @@ import re
 from collections import defaultdict
 from dataclasses import dataclass
 from itertools import zip_longest
+from math import isfinite
 from statistics import median
 from typing import Callable, Dict, List, Optional, Tuple
 
@@ -54,16 +55,29 @@ def time_to_seed_again(tidal: Tidal, seconds_left: float, playlist_size: int) ->
     return seconds_left - seconds_to_seed >= tidal.seconds_to_set_playlist(playlist_size)
 
 
+def reachable_candidates(read: int, seconds_spent: float, seconds_spare: float,
+                         candidate_count: int) -> int:
+    unhurried = not isfinite(seconds_spent) or not isfinite(seconds_spare)
+    if read == 0 or seconds_spent <= 0.0 or unhurried:
+        return candidate_count
+    return min(candidate_count, read + int(seconds_spare * read / seconds_spent))
+
+
 def gather_recommendations(tidal: Tidal, candidates: List[MixTrack], playlist_size: int,
                            seconds_left: Callable[[], float]) -> Dict[str, float]:
     recommended: Dict[str, float] = defaultdict(float)
     seeded = without_radio = 0
+    began_with = seconds_left()
 
     with tqdm(total=len(candidates), desc='Reading radios') as progress:
         for candidate in candidates:
-            if not time_to_seed_again(tidal, seconds_left(), playlist_size):
+            remaining = seconds_left()
+            if not time_to_seed_again(tidal, remaining, playlist_size):
                 break
             progress.update(1)
+            progress.total = reachable_candidates(
+                progress.n, began_with - remaining,
+                remaining - tidal.seconds_to_set_playlist(playlist_size), len(candidates))
             found = find_track(tidal, candidate)
             if not found:
                 continue

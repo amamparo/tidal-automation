@@ -14,6 +14,7 @@ from src.playlist import (
     is_same_recording,
     mixable_selection,
     most_recommended,
+    reachable_candidates,
     time_to_seed_again,
     widened_corpus
 )
@@ -156,7 +157,7 @@ class GatheringRecommendations(TestCase):
         seeds = [MixTrack(artist=f'Artist {n}', title=f'Track {n}') for n in range(5)]
         tidal = stub_tidal({f'Track {n}': [n] for n in range(5)}, seconds_per_request=1.0)
 
-        gather_recommendations(tidal, seeds, 1, clock_reading(5.0, 4.0, 2.0))
+        gather_recommendations(tidal, seeds, 1, clock_reading(6.0, 5.0, 4.0, 2.0))
 
         self.assertEqual(['Track 0', 'Track 1'], cast(StubTidal, tidal).seeded)
 
@@ -336,3 +337,24 @@ class CorpusCandidates(TestCase):
 
     def test_no_tracklists_yield_no_candidates(self) -> None:
         self.assertEqual([], candidates_from([]))
+
+
+class ReachableCandidates(TestCase):
+    def test_the_rate_so_far_predicts_how_many_more_the_clock_allows(self) -> None:
+        self.assertEqual(30, reachable_candidates(10, 100.0, 200.0, 500))
+
+    def test_it_never_promises_more_than_the_corpus_holds(self) -> None:
+        self.assertEqual(12, reachable_candidates(10, 1.0, 1000.0, 12))
+
+    def test_before_anything_is_read_the_whole_corpus_is_the_estimate(self) -> None:
+        self.assertEqual(500, reachable_candidates(0, 0.0, 900.0, 500))
+        self.assertEqual(500, reachable_candidates(3, 0.0, 900.0, 500))
+
+    def test_no_time_left_reaches_nothing_further(self) -> None:
+        self.assertEqual(10, reachable_candidates(10, 100.0, 0.0, 500))
+
+    def test_a_clock_that_never_runs_out_reaches_the_whole_corpus(self) -> None:
+        endless = float('inf')
+
+        self.assertEqual(500, reachable_candidates(10, endless - endless, endless, 500))
+        self.assertEqual(500, reachable_candidates(10, 100.0, endless, 500))
