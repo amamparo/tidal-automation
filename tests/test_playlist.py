@@ -24,8 +24,8 @@ TODAY = date(2026, 9, 3)
 PLAYLIST_SIZE = 100
 
 
-def mix(recorded_on: date, *tracks: MixTrack) -> Tracklist:
-    return Tracklist(recorded_on=recorded_on, tracks=list(tracks))
+def mix(*tracks: MixTrack) -> Tracklist:
+    return Tracklist(recorded_on=TODAY, tracks=list(tracks))
 
 
 def timed_tracks(**tempos: float) -> List[TimedTrack]:
@@ -268,7 +268,7 @@ class StubMixesDb:
         months = int(query)
         self.asked.append(months)
         available = self.by_months[max(m for m in self.by_months if m <= months)]
-        return [mix(TODAY, *[MixTrack(artist=f'a{n}', title=f't{n}') for n in range(available)])]
+        return [mix(*[MixTrack(artist=f'a{n}', title=f't{n}') for n in range(available)])]
 
 
 def stub_mixes_db(by_months: Dict[int, int]) -> MixesDb:
@@ -308,7 +308,7 @@ class CorpusCandidates(TestCase):
         shared = MixTrack(artist='Yagya', title='Sleepygirl 1')
         other = MixTrack(artist='Rrose', title='Triplicate')
 
-        candidates = candidates_from([mix(TODAY, shared, other), mix(TODAY, shared)])
+        candidates = candidates_from([mix(shared, other), mix(shared)])
 
         self.assertEqual([shared, other], candidates)
 
@@ -316,7 +316,7 @@ class CorpusCandidates(TestCase):
         hottest = [MixTrack(artist='Basic Channel', title=f'Q{n}') for n in range(3)]
         coldest = [MixTrack(artist='Quantec', title=f'W{n}') for n in range(3)]
 
-        candidates = candidates_from([mix(TODAY, *hottest), mix(TODAY, *coldest)])
+        candidates = candidates_from([mix(*hottest), mix(*coldest)])
 
         self.assertEqual([hottest[0], coldest[0], hottest[1], coldest[1], hottest[2], coldest[2]],
                          candidates)
@@ -325,13 +325,13 @@ class CorpusCandidates(TestCase):
         hottest = MixTrack(artist='Basic Channel', title='Q1.1')
         coldest = MixTrack(artist='Quantec', title='Wintermute')
 
-        self.assertEqual([hottest, coldest], candidates_from([mix(TODAY, hottest), mix(TODAY, coldest)]))
+        self.assertEqual([hottest, coldest], candidates_from([mix(hottest), mix(coldest)]))
 
     def test_a_short_mix_does_not_cut_a_long_one_short(self) -> None:
         short = MixTrack(artist='Yagya', title='only')
         long = [MixTrack(artist='Rrose', title=f't{n}') for n in range(3)]
 
-        candidates = candidates_from([mix(TODAY, short), mix(TODAY, *long)])
+        candidates = candidates_from([mix(short), mix(*long)])
 
         self.assertEqual([short, *long], candidates)
 

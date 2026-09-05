@@ -28,8 +28,9 @@ class TimedTrack:
 
 
 def candidates_from(tracklists: List[Tracklist]) -> List[MixTrack]:
-    round_robin = zip_longest(*(tracklist.tracks for tracklist in tracklists))
-    return list(dict.fromkeys(track for turn in round_robin for track in turn if track))
+    turns = zip_longest(*(tracklist.tracks for tracklist in tracklists))
+    round_robin = (track for turn in turns for track in turn if track is not None)
+    return list(dict.fromkeys(round_robin))
 
 
 def is_same_recording(mix_title: str, found_name: str) -> bool:
@@ -57,8 +58,9 @@ def time_to_seed_again(tidal: Tidal, seconds_left: float, playlist_size: int) ->
 
 def reachable_candidates(read: int, seconds_spent: float, seconds_spare: float,
                          candidate_count: int) -> int:
-    unhurried = not isfinite(seconds_spent) or not isfinite(seconds_spare)
-    if read == 0 or seconds_spent <= 0.0 or unhurried:
+    unmeasured = read == 0 or seconds_spent <= 0.0
+    endless_clock = not isfinite(seconds_spent) or not isfinite(seconds_spare)
+    if unmeasured or endless_clock:
         return candidate_count
     return min(candidate_count, read + int(seconds_spare * read / seconds_spent))
 
@@ -76,8 +78,10 @@ def gather_recommendations(tidal: Tidal, candidates: List[MixTrack], playlist_si
                 break
             progress.update(1)
             progress.total = reachable_candidates(
-                progress.n, began_with - remaining,
-                remaining - tidal.seconds_to_set_playlist(playlist_size), len(candidates))
+                read=progress.n,
+                seconds_spent=began_with - remaining,
+                seconds_spare=remaining - tidal.seconds_to_set_playlist(playlist_size),
+                candidate_count=len(candidates))
             found = find_track(tidal, candidate)
             if not found:
                 continue
