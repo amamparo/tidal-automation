@@ -66,3 +66,26 @@ A `Stop` hook (`.claude/hooks/simplify-cadence.sh`, wired up in `.claude/setting
 cleanup batches up instead of running after every edit. Deletions count toward the churn but are never sent
 to the simplifier. Run the script with `--checkpoint` after a pass to absorb it into the baseline, or
 `--status` to see what is pending.
+
+## Committing
+
+The git log is this project's ledger of work and its set of revert points, so commit and push without being
+asked. Do not wait for permission, and do not leave finished work sitting in the working tree.
+
+Commit when a coherent unit of work is green. Commit before starting anything long or risky — a broad
+refactor, a dependency bump, a multi-agent run — so there is a known-good point to reset to if it goes
+wrong or gets killed part-way. Commit a `code-simplifier` pass as its own commit, so a bad simplification
+can be reverted without losing the functional change underneath.
+
+Green means `just check` is no worse than you found it. `tests/test_last_fm_matching.py` has two failures
+that hit the live last.fm API — `test_matt_and_kim` and `test_not_various_artists_album` — and they
+reproduce on `main`. Anything beyond those is yours to fix before committing.
+
+Never commit on `main`: cut a kebab-case topic branch first. Push after every commit — an unpushed commit
+is not a durable revert point.
+
+Match the existing log. Subjects are short, lowercase and imperative, with no scope prefix. Bodies are
+prose wrapped at about 76 characters, and they carry what the diff cannot: why the change is shaped the way
+it is, which alternatives were ruled out and on what evidence, the measurements behind any claim, and
+anything left in a surprising state — a deployed stack that no longer matches the code, a pre-existing
+failure, a follow-up deliberately deferred.
