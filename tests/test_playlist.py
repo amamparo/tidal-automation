@@ -13,11 +13,11 @@ from src.playlist import (
     RECENCY_HALF_LIFE_DAYS,
     genre_affinity,
     affordable_lookups,
-    core_profile,
-    emphasise_rare,
+    emphasise_rare_tags,
     genre_fingerprint,
     tag_rarity,
     genre_profile,
+    typical_half,
     is_same_recording,
     mix_weight,
     weigh_by_genre,
@@ -311,43 +311,44 @@ class TagRarity(TestCase):
         self.assertLess(rarity['electronic'], rarity['dub techno'])
         self.assertEqual(0.0, rarity['electronic'])
 
-    def test_emphasising_rarity_reorders_an_artists_own_tags(self) -> None:
-        rarity = tag_rarity([{'techno': 1.0, 'jungle': 1.0}] + [{'techno': 1.0} for _ in range(8)])
-        k65 = emphasise_rare({'techno': 1.0, 'jungle': 0.5}, rarity)
-
-        self.assertGreater(k65['jungle'], k65['techno'])
-
-    def test_an_unseen_tag_contributes_nothing_rather_than_raising(self) -> None:
-        self.assertEqual({'grime': 0.0}, emphasise_rare({'grime': 1.0}, {'techno': 2.0}))
-
     def test_rarity_is_never_negative(self) -> None:
         rarity = tag_rarity([{'ubiquitous': 1.0} for _ in range(20)] + [{'ubiquitous': 1.0, 'rare': 1.0}])
 
         self.assertEqual(0.0, rarity['ubiquitous'])
         self.assertGreater(rarity['rare'], 0.0)
 
+    def test_emphasising_rarity_reorders_an_artists_own_tags(self) -> None:
+        crowd = {f'Artist {n}': {'techno': 1.0} for n in range(8)}
 
-class CoreProfile(TestCase):
+        distinctive = emphasise_rare_tags({'K-65': {'techno': 1.0, 'jungle': 0.5}, **crowd})
+
+        self.assertGreater(distinctive['K-65']['jungle'], distinctive['K-65']['techno'])
+
+    def test_an_untagged_artist_stays_untagged(self) -> None:
+        self.assertEqual({'Critical Digital': {}}, emphasise_rare_tags({'Critical Digital': {}}))
+
+
+class TypicalHalf(TestCase):
     def test_the_profile_is_drawn_from_the_typical_half(self) -> None:
         core = [{'dub techno': 1.0, 'minimal': 1.0} for _ in range(4)]
         outliers = [{'disco': 1.0}, {'jungle': 1.0}]
 
-        profile = core_profile(core + outliers)
+        profile = genre_profile(typical_half(core + outliers))
 
         self.assertNotIn('disco', profile)
         self.assertNotIn('jungle', profile)
         self.assertIn('dub techno', profile)
 
-    def test_an_outlier_scores_lower_against_the_core_than_against_everything(self) -> None:
+    def test_an_outlier_scores_lower_against_the_typical_half_than_against_everything(self) -> None:
         everything = [{'dub techno': 1.0} for _ in range(4)] + [{'disco': 1.0}, {'disco': 1.0}]
         outlier = {'disco': 1.0}
 
-        self.assertLess(genre_affinity(outlier, core_profile(everything)),
+        self.assertLess(genre_affinity(outlier, genre_profile(typical_half(everything))),
                         genre_affinity(outlier, genre_profile(everything)))
 
-    def test_it_survives_a_corpus_with_nothing_in_it(self) -> None:
-        self.assertEqual({}, core_profile([]))
-        self.assertEqual({}, core_profile([{}, {}]))
+    def test_nothing_worth_scoring_leaves_every_fingerprint_typical(self) -> None:
+        self.assertEqual([], typical_half([]))
+        self.assertEqual([{}, {}], typical_half([{}, {}]))
 
 
 class ZeroWeightCandidates(TestCase):

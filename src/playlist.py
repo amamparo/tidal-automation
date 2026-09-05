@@ -5,7 +5,7 @@ from math import log, sqrt
 from random import Random
 from statistics import median
 from time import monotonic
-from typing import Callable, Dict, Iterable, List, Optional
+from typing import Callable, Collection, Dict, Iterable, List, Optional
 
 from requests.exceptions import HTTPError  # type: ignore[import-untyped]
 from tidalapi import Track
@@ -62,29 +62,7 @@ def genre_profile(artist_tags: Iterable[Dict[str, float]]) -> Dict[str, float]:
     for tags in artist_tags:
         for tag, weight in tags.items():
             profile[tag] += weight
-    return profile
-
-
-def tag_rarity(fingerprints: List[Dict[str, float]]) -> Dict[str, float]:
-    carrying: Dict[str, int] = defaultdict(int)
-    for fingerprint in fingerprints:
-        for tag in fingerprint:
-            carrying[tag] += 1
-    return {tag: max(0.0, log(len(fingerprints) / (1 + count))) for tag, count in carrying.items()}
-
-
-def emphasise_rare(fingerprint: Dict[str, float], rarity: Dict[str, float]) -> Dict[str, float]:
-    return {tag: weight * rarity.get(tag, 0.0) for tag, weight in fingerprint.items()}
-
-
-def core_profile(fingerprints: List[Dict[str, float]]) -> Dict[str, float]:
-    everything = genre_profile(fingerprints)
-    scored = [(genre_affinity(fingerprint, everything), fingerprint)
-              for fingerprint in fingerprints if fingerprint]
-    if not scored:
-        return everything
-    typical = median(score for score, _ in scored)
-    return genre_profile([fingerprint for score, fingerprint in scored if score >= typical])
+    return dict(profile)
 
 
 def genre_affinity(tags: Dict[str, float], profile: Dict[str, float]) -> float:
@@ -94,6 +72,30 @@ def genre_affinity(tags: Dict[str, float], profile: Dict[str, float]) -> float:
         return 0.0
     shared = sum(weight * profile.get(tag, 0.0) for tag, weight in tags.items())
     return shared / (artist_magnitude * profile_magnitude)
+
+
+def tag_rarity(fingerprints: Collection[Dict[str, float]]) -> Dict[str, float]:
+    carrying: Dict[str, int] = defaultdict(int)
+    for fingerprint in fingerprints:
+        for tag in fingerprint:
+            carrying[tag] += 1
+    return {tag: max(0.0, log(len(fingerprints) / (1 + count))) for tag, count in carrying.items()}
+
+
+def emphasise_rare_tags(fingerprints: Dict[str, Dict[str, float]]) -> Dict[str, Dict[str, float]]:
+    rarity = tag_rarity(fingerprints.values())
+    return {artist: {tag: weight * rarity[tag] for tag, weight in fingerprint.items()}
+            for artist, fingerprint in fingerprints.items()}
+
+
+def typical_half(fingerprints: Collection[Dict[str, float]]) -> List[Dict[str, float]]:
+    everything = genre_profile(fingerprints)
+    scored = [(genre_affinity(fingerprint, everything), fingerprint)
+              for fingerprint in fingerprints if fingerprint]
+    if not scored:
+        return list(fingerprints)
+    typical = median(score for score, _ in scored)
+    return [fingerprint for score, fingerprint in scored if score >= typical]
 
 
 def affordable_lookups(wanted: int, seconds_left: float, seconds_per_request: float) -> int:
@@ -126,10 +128,8 @@ def weigh_by_genre(last_fm: LastFm, discogs: Discogs, weights: Dict[MixTrack, fl
 
     fingerprints = {artist: genre_fingerprint(tags_by_artist[artist], styles_by_artist.get(artist, {}))
                     for artist in artists}
-    rarity = tag_rarity(list(fingerprints.values()))
-    distinctive = {artist: emphasise_rare(fingerprint, rarity)
-                   for artist, fingerprint in fingerprints.items()}
-    profile = core_profile(list(distinctive.values()))
+    distinctive = emphasise_rare_tags(fingerprints)
+    profile = genre_profile(typical_half(distinctive.values()))
     affinities = {artist: genre_affinity(fingerprint, profile)
                   for artist, fingerprint in distinctive.items() if fingerprint}
     print(f'genres: {len(affinities)} of {len(artists)} artists fingerprinted across {len(profile)} genres, '
