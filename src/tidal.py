@@ -216,18 +216,35 @@ class Tidal:
                 raise
             return []
 
+    def find_timed_track(self, last_fm_track: LastFmTrack) -> Optional[Track]:
+        fixed = self.__fix_last_fm_track(last_fm_track)
+        results = self.__search(fixed)
+        matches = [result for result in results if self.__matches(fixed, result, last_fm_track.title)]
+        timed = [match for match in matches if self.beats_per_minute(str(match.id))]
+        return next(iter(timed or matches), None)
+
     def find_equivalent_track(self, last_fm_track: LastFmTrack, match_version: bool = False) -> Optional[Track]:
         cache_key = (last_fm_track, match_version)
         if cache_key in self.__track_find_cache:
             return self.__track_find_cache[cache_key]
 
         fixed = self.__fix_last_fm_track(last_fm_track)
-        query = self.__search_query(fixed)
-        results = self.__call_api(lambda: self.__tidal.search(query, models=[Track])['tracks'])
+        results = self.__search(fixed)
         match = self.__best_match(fixed, results, last_fm_track.title if match_version else None)
 
         self.__track_find_cache[cache_key] = match
         return match
+
+    def __search(self, searched: LastFmTrack) -> List[Track]:
+        query = self.__search_query(searched)
+        return cast(List[Track], self.__call_api(lambda: self.__tidal.search(query, models=[Track])['tracks']))
+
+    def __matches(self, searched: LastFmTrack, result: Track, versioned_title: Optional[str]) -> bool:
+        if versioned_title is not None and not self.__versions_match(versioned_title, result):
+            return False
+        if not self.__titles_match(searched.title, result.name or ''):
+            return False
+        return self.__artists_match(searched.artists, {artist.name for artist in result.artists or []})
 
     def __best_match(self, searched: LastFmTrack, results: List[Track],
                      versioned_title: Optional[str]) -> Optional[Track]:
@@ -235,13 +252,9 @@ class Tidal:
         alternate_versions: List[Track] = []
 
         for result in results:
-            if versioned_title is not None and not self.__versions_match(versioned_title, result):
-                continue
-            if not self.__titles_match(searched.title, result.name or ''):
+            if not self.__matches(searched, result, versioned_title):
                 continue
             track_artists = {artist.name for artist in result.artists or []}
-            if not self.__artists_match(searched.artists, track_artists):
-                continue
 
             album = self.__get_album(str(cast(Album, result.album).id))
             album_artists = {artist.name for artist in album.artists or []}

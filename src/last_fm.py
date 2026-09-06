@@ -3,7 +3,7 @@ from collections import deque
 from dataclasses import dataclass
 from threading import Lock
 from time import sleep, time
-from typing import Deque, Dict, List, Set
+from typing import Any, Deque, Dict, List, Set
 
 import requests  # type: ignore[import-untyped]
 from injector import inject, singleton
@@ -44,6 +44,14 @@ class LastFm:
         playlist = requests.get(url, timeout=None).json()['playlist']
         return [LastFmTrack(title=x['name'], artists={a['name'] for a in x['artists']}) for x in playlist]
 
+    @property
+    def seconds_per_request(self) -> float:
+        return 1.0 / REQUESTS_PER_SECOND
+
+    def top_artists(self, tag: str, limit: int) -> List[str]:
+        artists = self.__get('tag.gettopartists', tag=tag, limit=str(limit)).get('topartists', {}).get('artist', [])
+        return [artist['name'] for artist in artists if artist.get('name')]
+
     def top_tags(self, artist: str) -> Dict[str, float]:
         cache_key = artist.lower()
         if cache_key not in self.__tags:
@@ -57,17 +65,21 @@ class LastFm:
         return self.__fetch_tags(lead)
 
     def __fetch_tags(self, artist: str) -> Dict[str, float]:
+        tags = self.__get('artist.gettoptags', artist=artist, autocorrect='1').get('toptags', {}).get('tag', [])
+        return {tag['name'].lower(): tag['count'] / TAG_COUNT_SCALE for tag in tags if tag.get('count')}
+
+    def __get(self, method: str, **params: str) -> Dict[str, Any]:
         self.__rate_limit()
         try:
             response = self.__session.get(API_URL, timeout=REQUEST_TIMEOUT, params={
-                'method': 'artist.gettoptags', 'artist': artist, 'format': 'json', 'autocorrect': '1',
-                'api_key': self.__environment.require('LASTFM_API_KEY'),
+                'method': method, 'format': 'json',
+                'api_key': self.__environment.require('LASTFM_API_KEY'), **params,
             })
             response.raise_for_status()
-            tags = response.json().get('toptags', {}).get('tag', [])
+            body: Dict[str, Any] = response.json()
         except (requests.RequestException, ValueError):
             return {}
-        return {tag['name'].lower(): tag['count'] / TAG_COUNT_SCALE for tag in tags if tag.get('count')}
+        return body
 
     def __rate_limit(self) -> None:
         with self.__rate_limit_lock:

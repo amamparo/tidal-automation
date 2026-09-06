@@ -3,9 +3,10 @@
 Rebuilds two Tidal playlists on a daily schedule, each as its own AWS Lambda deployed with CDK:
 
 * **Daily Blend** — from Tidal's Daily Discover and New Arrivals mixes plus last.fm recommendations.
-* **Darkroom** — from the tracklists of the currently hottest DJ mixes on
-  [MixesDB](https://www.mixesdb.com) tagged **both** Dub Techno and Minimal, picked by a weighted lottery
-  that favours hotter and more recent mixes and how closely each artist fits the corpus.
+* **Darkroom** — the tracks themselves, taken from the tracklists of recent Dub Techno mixes on
+  [MixesDB](https://www.mixesdb.com) and ranked by how strongly each track's Tidal radio neighbourhood is
+  tagged like the genre the search asked for, then annealed to a tempo span one Technics pitch fader can
+  bridge.
 
 Both rebuild differentially: a track that survives an update keeps its original date-added, so sorting the
 playlist by that shows what is new and what has been hanging around.
@@ -31,6 +32,8 @@ Local runs read these from a `.env` in the project root:
 * `DAILY_BLEND_SIZE` — how many tracks to fill it up to
 * `DARKROOM_PLAYLIST_ID` — the Darkroom playlist to rewrite; create it by hand in Tidal first
 * `DARKROOM_SIZE` — how many tracks to fill it up to
+* `LASTFM_API_KEY` — used by both playlists
+* `DISCOGS_TOKEN` — optional; without it Discogs runs at the anonymous 25/min rate
 
 The deployed Lambda takes the same settings from `aws/main.py`, apart from the refresh token,
 which it reads from its Secrets Manager secret. CDK creates that secret with a generated placeholder

@@ -5,23 +5,30 @@ from typing import Callable, Optional
 from injector import inject, Injector
 
 from src.clock import deadline_clock
+from src.discogs import Discogs
 from src.environment import Environment
+from src.last_fm import LastFm
 from src.mixes_db import MixesDb, date_window
 from src.playlist import rebuild
 from src.tidal import Tidal
 
+STYLE = 'Dub Techno'
+
 
 def search_query(today: date, months: int) -> str:
-    return f'style:"Dub Techno" tracklist:complete date:{date_window(today, months)}'
+    return f'style:"{STYLE}" tracklist:complete date:{date_window(today, months)}'
 
 
 @inject
-def main(environment: Environment, tidal: Tidal, mixes_db: MixesDb,
+def main(environment: Environment, tidal: Tidal, mixes_db: MixesDb, last_fm: LastFm, discogs: Discogs,
          *, seconds_left: Callable[[], float]) -> None:
     today = date.today()
     rebuild(
         tidal,
         mixes_db,
+        last_fm,
+        discogs,
+        style=STYLE,
         query_for=lambda months: search_query(today, months),
         playlist_id=environment.require('DARKROOM_PLAYLIST_ID'),
         playlist_size=int(environment.require('DARKROOM_SIZE')),

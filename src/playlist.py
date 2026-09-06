@@ -1,23 +1,27 @@
 import re
-from collections import defaultdict
+from concurrent.futures import Executor, Future, ThreadPoolExecutor
 from dataclasses import dataclass
+from functools import partial
 from itertools import zip_longest
 from math import isfinite
 from statistics import median
-from typing import Callable, Dict, List, Optional, Tuple
+from threading import Lock
+from typing import Callable, Dict, List, Optional, Set, Tuple
 
 from requests.exceptions import HTTPError  # type: ignore[import-untyped]
 from tidalapi import Track
 from tidalapi.exceptions import ObjectNotFound
 from tqdm import tqdm
 
-from src.last_fm import LastFmTrack
+from src.discogs import Discogs
+from src.genre import TagVector, Vouch, genre_confidence, normalised, style_profile, tag_rarity
+from src.last_fm import LastFm, LastFmTrack
 from src.mixes_db import WIDENING_MONTHS, WINDOW_MONTHS, MixesDb, MixTrack, Tracklist, searchable
 from src.tidal import Tidal
 
-SEED_REQUESTS = 2
 PITCH_FADER_RANGE = 0.08
 MIXABLE_SPAN = 1.0 + PITCH_FADER_RANGE
+VOUCHING_RADIO_SHARE = 0.1
 TITLE_QUALIFIER = re.compile(r'\s+[(\[].*$|\s+\d{1,3}$')
 
 
@@ -25,6 +29,42 @@ TITLE_QUALIFIER = re.compile(r'\s+[(\[].*$|\s+\d{1,3}$')
 class TimedTrack:
     track_id: str
     tempo: float
+
+
+@dataclass
+class CandidateEvidence:
+    track_id: str
+    vouches: List[Vouch]
+
+
+class TagLane:
+    def __init__(self, pool: Executor, fetch: Callable[[str], TagVector],
+                 seconds_per_request: float) -> None:
+        self.__pool = pool
+        self.__fetch = fetch
+        self.__seconds_per_request = seconds_per_request
+        self.__asked: Dict[str, Future[TagVector]] = {}
+        self.__outstanding = 0
+        self.__lock = Lock()
+
+    def request(self, artist: str) -> None:
+        if artist in self.__asked:
+            return
+        with self.__lock:
+            self.__outstanding += 1
+        self.__asked[artist] = self.__pool.submit(self.__fetch, artist)
+        self.__asked[artist].add_done_callback(self.__answered)
+
+    def __answered(self, _: 'Future[TagVector]') -> None:
+        with self.__lock:
+            self.__outstanding -= 1
+
+    @property
+    def seconds_to_drain(self) -> float:
+        return self.__outstanding * self.__seconds_per_request
+
+    def drained(self) -> Dict[str, TagVector]:
+        return {artist: asked.result() for artist, asked in self.__asked.items()}
 
 
 def candidates_from(tracklists: List[Tracklist]) -> List[MixTrack]:
@@ -41,7 +81,7 @@ def is_same_recording(mix_title: str, found_name: str) -> bool:
 def find_track(tidal: Tidal, track: MixTrack) -> Optional[Track]:
     searched = LastFmTrack(title=track.title, artists={track.artist})
     try:
-        found = tidal.find_equivalent_track(searched, match_version=True)
+        found = tidal.find_timed_track(searched)
     except ObjectNotFound:
         return None
     except HTTPError as error:
@@ -51,9 +91,51 @@ def find_track(tidal: Tidal, track: MixTrack) -> Optional[Track]:
     return found if found and is_same_recording(track.title, found.name or '') else None
 
 
-def time_to_seed_again(tidal: Tidal, seconds_left: float, playlist_size: int) -> bool:
-    seconds_to_seed = SEED_REQUESTS * tidal.seconds_per_request
-    return seconds_left - seconds_to_seed >= tidal.seconds_to_set_playlist(playlist_size)
+def artist_tags(last_fm: LastFm, discogs: Discogs, artist: str) -> TagVector:
+    return normalised(last_fm.top_tags(artist)) or normalised(discogs.styles(artist))
+
+
+def style_profile_of(last_fm: LastFm, style: str, roster_size: int) -> TagVector:
+    roster = last_fm.top_artists(style, roster_size)
+    return style_profile(normalised(last_fm.top_tags(artist)) for artist in roster)
+
+
+def vouching_depth(radio_length: int) -> int:
+    return round(radio_length * VOUCHING_RADIO_SHARE)
+
+
+def credited_artists(track: Track) -> Set[str]:
+    return {(artist.name or '').lower() for artist in track.artists or []}
+
+
+def lead_artist(track: Track) -> str:
+    credited = track.artists or []
+    return (credited[0].name or '') if credited else ''
+
+
+def vouches_for(artist: str, radio: List[Track]) -> List[Vouch]:
+    head = radio[:vouching_depth(len(radio))]
+    neighbours = [Vouch(1.0 - position / len(radio), lead_artist(track))
+                  for position, track in enumerate(head)
+                  if artist.lower() not in credited_artists(track)]
+    return [Vouch(1.0, artist), *(vouch for vouch in neighbours if vouch.artist)]
+
+
+def corpus_the_clock_can_reach(tidal: Tidal, seconds_left: float, playlist_size: int) -> float:
+    return (seconds_left - tidal.seconds_to_set_playlist(playlist_size)) / tidal.seconds_per_request
+
+
+def seconds_per_candidate(tidal: Tidal, timed: int, attempted: int) -> float:
+    radios_per_candidate = timed / attempted if attempted else 1.0
+    return tidal.seconds_per_request * (1.0 + radios_per_candidate)
+
+
+def seconds_to_finish(tidal: Tidal, tags: TagLane, playlist_size: int) -> float:
+    return tidal.seconds_to_set_playlist(playlist_size) + tags.seconds_to_drain
+
+
+def time_to_read_again(seconds_left: float, seconds_per_read: float, seconds_to_spare: float) -> bool:
+    return seconds_left - seconds_per_read >= seconds_to_spare
 
 
 def reachable_candidates(read: int, seconds_spent: float, seconds_spare: float,
@@ -65,39 +147,61 @@ def reachable_candidates(read: int, seconds_spent: float, seconds_spare: float,
     return min(candidate_count, read + int(seconds_spare * read / seconds_spent))
 
 
-def gather_recommendations(tidal: Tidal, candidates: List[MixTrack], playlist_size: int,
-                           seconds_left: Callable[[], float]) -> Dict[str, float]:
-    recommended: Dict[str, float] = defaultdict(float)
-    seeded = without_radio = 0
+def evidence_for(tidal: Tidal, tags: TagLane, candidate: MixTrack) -> Optional[CandidateEvidence]:
+    found = find_track(tidal, candidate)
+    if not found or not tidal.beats_per_minute(str(found.id)):
+        return None
+    vouches = vouches_for(candidate.artist, tidal.track_radio(found))
+    for vouch in vouches:
+        tags.request(vouch.artist)
+    return CandidateEvidence(track_id=str(found.id), vouches=vouches)
+
+
+def gather_evidence(tidal: Tidal, tags: TagLane, candidates: List[MixTrack], playlist_size: int,
+                    seconds_left: Callable[[], float]) -> List[CandidateEvidence]:
+    evidence: List[CandidateEvidence] = []
+    attempted = 0
     began_with = seconds_left()
 
-    with tqdm(total=len(candidates), desc='Reading radios') as progress:
+    with tqdm(total=len(candidates), desc='Reading candidates') as progress:
         for candidate in candidates:
             remaining = seconds_left()
-            if not time_to_seed_again(tidal, remaining, playlist_size):
+            reserved = seconds_to_finish(tidal, tags, playlist_size)
+            if not time_to_read_again(remaining, seconds_per_candidate(tidal, len(evidence), attempted), reserved):
                 break
+            attempted += 1
             progress.update(1)
             progress.total = reachable_candidates(
                 read=progress.n,
                 seconds_spent=began_with - remaining,
-                seconds_spare=remaining - tidal.seconds_to_set_playlist(playlist_size),
+                seconds_spare=remaining - reserved,
                 candidate_count=len(candidates))
-            found = find_track(tidal, candidate)
-            if not found:
-                continue
-            radio = tidal.track_radio(found)
-            if not radio:
-                without_radio += 1
-                continue
-            seeded += 1
-            for position, track in enumerate(radio):
-                recommended[str(track.id)] += 1.0 - position / len(radio)
-    print(f'radios: {seeded} seeds, {without_radio} without a radio, {len(recommended)} tracks recommended')
-    return recommended
+            found = evidence_for(tidal, tags, candidate)
+            if found:
+                evidence.append(found)
+    vouched = sum(1 for item in evidence if len(item.vouches) > 1)
+    print(f'evidence: {attempted} candidates attempted, {len(evidence)} timed, {vouched} with a radio')
+    return evidence
 
 
-def most_recommended(recommended: Dict[str, float]) -> List[str]:
-    return sorted(recommended, key=lambda track_id: (-recommended[track_id], track_id))
+def genre_confidences(tidal: Tidal, last_fm: LastFm, discogs: Discogs, candidates: List[MixTrack],
+                      *, style: str, playlist_size: int,
+                      seconds_left: Callable[[], float]) -> Dict[str, float]:
+    with ThreadPoolExecutor(max_workers=1) as lookups:
+        profile = lookups.submit(style_profile_of, last_fm, style, playlist_size)
+        tags = TagLane(lookups, partial(artist_tags, last_fm, discogs),
+                       last_fm.seconds_per_request + discogs.seconds_per_request)
+        evidence = gather_evidence(tidal, tags, candidates, playlist_size, seconds_left)
+        gathered = tags.drained()
+    anchor = profile.result()
+    rarity = tag_rarity(gathered.values())
+    print(f'genres: {len(anchor)} tags anchor {style}, {sum(1 for tags in gathered.values() if tags)} '
+          f'of {len(gathered)} vouching artists tagged')
+    return {item.track_id: genre_confidence(item.vouches, gathered, anchor, rarity) for item in evidence}
+
+
+def most_confident(confidence: Dict[str, float]) -> List[str]:
+    return sorted(confidence, key=lambda track_id: (-confidence[track_id], track_id))
 
 
 def tempo_span(tempos: List[float]) -> float:
@@ -109,17 +213,17 @@ def fits_inside_one_pitch_fader(tracks: List[TimedTrack]) -> bool:
     return not tempos or tempo_span(tempos) <= MIXABLE_SPAN
 
 
-def without_the_least_recommended_outlier(selected: List[TimedTrack]) -> List[TimedTrack]:
+def without_the_least_confident_outlier(selected: List[TimedTrack]) -> List[TimedTrack]:
     centre = median(track.tempo for track in selected)
-    least_recommended_first = reversed(selected)
-    dropped = max(least_recommended_first, key=lambda track: abs(track.tempo - centre))
+    least_confident_first = reversed(selected)
+    dropped = max(least_confident_first, key=lambda track: abs(track.tempo - centre))
     return [track for track in selected if track is not dropped]
 
 
 def annealed_selection(timed: List[TimedTrack], playlist_size: int) -> List[TimedTrack]:
     selected = timed[:playlist_size]
     while not fits_inside_one_pitch_fader(selected):
-        selected = without_the_least_recommended_outlier(selected)
+        selected = without_the_least_confident_outlier(selected)
     for candidate in timed[playlist_size:]:
         if len(selected) >= playlist_size:
             break
@@ -142,11 +246,11 @@ def mixable_selection(ranked: List[str], tempo_of: Callable[[str], Optional[int]
 
 
 def widened_corpus(mixes_db: MixesDb, query_for: Callable[[int], str],
-                   playlist_size: int) -> Tuple[List[Tracklist], List[MixTrack]]:
+                   reachable: float) -> Tuple[List[Tracklist], List[MixTrack]]:
     months = WINDOW_MONTHS
     tracklists = mixes_db.get_tracklists(query_for(months))
     candidates = candidates_from(tracklists)
-    while len(candidates) < playlist_size:
+    while len(candidates) < reachable:
         wider = mixes_db.get_tracklists(query_for(months + WIDENING_MONTHS))
         widened = candidates_from(wider)
         if len(widened) <= len(candidates):
@@ -157,17 +261,25 @@ def widened_corpus(mixes_db: MixesDb, query_for: Callable[[int], str],
     return tracklists, candidates
 
 
-def rebuild(tidal: Tidal, mixes_db: MixesDb, *, query_for: Callable[[int], str], playlist_id: str,
-            playlist_size: int, seconds_left: Callable[[], float]) -> None:
-    tracklists, candidates = widened_corpus(mixes_db, query_for, playlist_size)
+def corpus_candidates(mixes_db: MixesDb, query_for: Callable[[int], str], reachable: float,
+                      playlist_size: int) -> List[MixTrack]:
+    tracklists, candidates = widened_corpus(mixes_db, query_for, reachable)
     if len(candidates) < playlist_size:
         raise RuntimeError(
             f'only {len(candidates)} candidates from {len(tracklists)} tracklists for {playlist_size} tracks')
+    return candidates
 
-    recommended = gather_recommendations(tidal, candidates, playlist_size, seconds_left)
-    ranked = most_recommended(recommended)
-    track_ids = mixable_selection(ranked, tidal.beats_per_minute, playlist_size)
+
+def rebuild(tidal: Tidal, mixes_db: MixesDb, last_fm: LastFm, discogs: Discogs, *, style: str,
+            query_for: Callable[[int], str], playlist_id: str, playlist_size: int,
+            seconds_left: Callable[[], float]) -> None:
+    reachable = corpus_the_clock_can_reach(tidal, seconds_left(), playlist_size)
+    candidates = corpus_candidates(mixes_db, query_for, reachable, playlist_size)
+
+    confidence = genre_confidences(tidal, last_fm, discogs, candidates, style=style,
+                                   playlist_size=playlist_size, seconds_left=seconds_left)
+    track_ids = mixable_selection(most_confident(confidence), tidal.beats_per_minute, playlist_size)
     if len(track_ids) < playlist_size:
-        raise RuntimeError(f'only {len(track_ids)} mixable tracks of {len(ranked)} recommended; '
+        raise RuntimeError(f'only {len(track_ids)} mixable tracks of {len(confidence)} scored; '
                            'leaving the playlist untouched')
     tidal.set_playlist_tracks(playlist_id, track_ids)
