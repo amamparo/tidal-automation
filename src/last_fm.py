@@ -49,7 +49,8 @@ class LastFm:
         return 1.0 / REQUESTS_PER_SECOND
 
     def top_artists(self, tag: str, limit: int) -> List[str]:
-        artists = self.__get('tag.gettopartists', tag=tag, limit=str(limit)).get('topartists', {}).get('artist', [])
+        response = self.__get('tag.gettopartists', tag=tag, limit=str(limit))
+        artists = response.get('topartists', {}).get('artist', [])
         return [artist['name'] for artist in artists if artist.get('name')]
 
     def top_tags(self, artist: str) -> Dict[str, float]:
@@ -65,7 +66,8 @@ class LastFm:
         return self.__fetch_tags(lead)
 
     def __fetch_tags(self, artist: str) -> Dict[str, float]:
-        tags = self.__get('artist.gettoptags', artist=artist, autocorrect='1').get('toptags', {}).get('tag', [])
+        response = self.__get('artist.gettoptags', artist=artist, autocorrect='1')
+        tags = response.get('toptags', {}).get('tag', [])
         return {tag['name'].lower(): tag['count'] / TAG_COUNT_SCALE for tag in tags if tag.get('count')}
 
     def __get(self, method: str, **params: str) -> Dict[str, Any]:

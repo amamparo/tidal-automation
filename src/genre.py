@@ -50,8 +50,8 @@ def cosine(one: Mapping[str, float], other: Mapping[str, float]) -> float:
 def genre_confidence(vouches: Sequence[Vouch], tags: Mapping[str, TagVector],
                      profile: Mapping[str, float], rarity: Mapping[str, float]) -> float:
     anchor = scaled_by_rarity(profile, rarity)
-    vouched = [(vouch.weight, cosine(scaled_by_rarity(tags[vouch.artist], rarity), anchor))
-               for vouch in vouches if tags.get(vouch.artist)]
+    vouched = [(vouch.weight, cosine(scaled_by_rarity(tagged, rarity), anchor))
+               for vouch in vouches if (tagged := tags.get(vouch.artist))]
     if not vouched:
         return 0.0
     return sum(weight * likeness for weight, likeness in vouched) / sum(weight for weight, _ in vouched)

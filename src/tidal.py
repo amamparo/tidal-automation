@@ -207,18 +207,11 @@ class Tidal:
         return self.__tidal.beats_per_minute.get(int(track_id))
 
     def track_radio(self, track: Track) -> List[Track]:
-        try:
-            return self.__call_api(track.get_track_radio)
-        except ObjectNotFound:
-            return []
-        except HTTPError as error:
-            if error.response is None or error.response.status_code != 404:
-                raise
-            return []
+        return self.__empty_if_not_found(lambda: self.__call_api(track.get_track_radio))
 
     def find_timed_track(self, last_fm_track: LastFmTrack) -> Optional[Track]:
         fixed = self.__fix_last_fm_track(last_fm_track)
-        results = self.__search(fixed)
+        results = self.__empty_if_not_found(lambda: self.__search(fixed))
         matches = [result for result in results if self.__matches(fixed, result, last_fm_track.title)]
         timed = [match for match in matches if self.beats_per_minute(str(match.id))]
         return next(iter(timed or matches), None)
@@ -238,6 +231,17 @@ class Tidal:
     def __search(self, searched: LastFmTrack) -> List[Track]:
         query = self.__search_query(searched)
         return cast(List[Track], self.__call_api(lambda: self.__tidal.search(query, models=[Track])['tracks']))
+
+    @staticmethod
+    def __empty_if_not_found(read: Callable[[], List[Track]]) -> List[Track]:
+        try:
+            return read()
+        except ObjectNotFound:
+            return []
+        except HTTPError as error:
+            if error.response is None or error.response.status_code != 404:
+                raise
+            return []
 
     def __matches(self, searched: LastFmTrack, result: Track, versioned_title: Optional[str]) -> bool:
         if versioned_title is not None and not self.__versions_match(versioned_title, result):

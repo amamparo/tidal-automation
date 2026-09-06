@@ -57,6 +57,10 @@ class FoundTrack:
     artists: List[Credit] = field(default_factory=list)
 
 
+def tidal_id(title: str) -> int:
+    return abs(hash(title))
+
+
 def radio_of(*artists: str) -> List[Track]:
     return cast(List[Track], [FoundTrack(position, f'track {position}', [Credit(artist)])
                               for position, artist in enumerate(artists)])
@@ -78,7 +82,7 @@ class StubTidal:
         title = last_fm_track.title
         if title not in self.radios:
             return None
-        found = FoundTrack(abs(hash(title)), title)
+        found = FoundTrack(tidal_id(title), title)
         self.found[str(found.id)] = title
         return found
 
@@ -239,9 +243,6 @@ class ArtistTags(TestCase):
 
 
 class BackgroundTagLane(TestCase):
-    def looked_up(self, tags: Dict[str, TagVector]) -> Callable[[str], TagVector]:
-        return lambda artist: tags.get(artist, {})
-
     def test_an_artist_asked_for_twice_is_looked_up_once(self) -> None:
         asked: List[str] = []
 
@@ -276,8 +277,10 @@ class BackgroundTagLane(TestCase):
         self.assertEqual(0.0, lane.seconds_to_drain)
 
     def test_draining_returns_the_tags_of_every_artist_it_was_asked_for(self) -> None:
+        known: Dict[str, TagVector] = {'Yagya': {'dub techno': 1.0}}
+
         with ThreadPoolExecutor(max_workers=1) as pool:
-            lane = TagLane(pool, self.looked_up({'Yagya': {'dub techno': 1.0}}), 0.0)
+            lane = TagLane(pool, lambda artist: known.get(artist, {}), 0.0)
             lane.request('Yagya')
             lane.request('Nobody')
 
@@ -291,7 +294,7 @@ class GatheringEvidence(TestCase):
 
         evidence = gather_evidence(tidal, stub_tags(), [candidate], PLAYLIST_SIZE, no_deadline)
 
-        self.assertEqual([str(abs(hash('Q1.1')))], [item.track_id for item in evidence])
+        self.assertEqual([str(tidal_id('Q1.1'))], [item.track_id for item in evidence])
 
     def test_a_candidate_is_vouched_for_by_its_own_artist_and_its_radio_neighbours(self) -> None:
         candidate = MixTrack(artist='Basic Channel', title='Q1.1')
@@ -309,7 +312,7 @@ class GatheringEvidence(TestCase):
 
         evidence = gather_evidence(tidal, stub_tags(), [missing, found], PLAYLIST_SIZE, no_deadline)
 
-        self.assertEqual([str(abs(hash('Rigning')))], [item.track_id for item in evidence])
+        self.assertEqual([str(tidal_id('Rigning'))], [item.track_id for item in evidence])
 
     def test_a_candidate_without_a_tempo_is_skipped_before_its_radio_is_read(self) -> None:
         untimed = MixTrack(artist='Basement Dubs', title='Untimed')
@@ -360,8 +363,8 @@ class GenreConfidences(TestCase):
         confidence = genre_confidences(tidal, last_fm, stub_discogs(), candidates, style='Dub Techno',
                                        playlist_size=PLAYLIST_SIZE, seconds_left=no_deadline)
 
-        self.assertGreater(confidence[str(abs(hash('Ritual')))], 0.0)
-        self.assertEqual(0.0, confidence[str(abs(hash('Body Speaking')))])
+        self.assertGreater(confidence[str(tidal_id('Ritual'))], 0.0)
+        self.assertEqual(0.0, confidence[str(tidal_id('Body Speaking'))])
 
 
 class ReadingBudget(TestCase):

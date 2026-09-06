@@ -8,9 +8,7 @@ from statistics import median
 from threading import Lock
 from typing import Callable, Dict, List, Optional, Set, Tuple
 
-from requests.exceptions import HTTPError  # type: ignore[import-untyped]
 from tidalapi import Track
-from tidalapi.exceptions import ObjectNotFound
 from tqdm import tqdm
 
 from src.discogs import Discogs
@@ -55,7 +53,7 @@ class TagLane:
         self.__asked[artist] = self.__pool.submit(self.__fetch, artist)
         self.__asked[artist].add_done_callback(self.__answered)
 
-    def __answered(self, _: 'Future[TagVector]') -> None:
+    def __answered(self, _: Future[TagVector]) -> None:
         with self.__lock:
             self.__outstanding -= 1
 
@@ -79,15 +77,7 @@ def is_same_recording(mix_title: str, found_name: str) -> bool:
 
 
 def find_track(tidal: Tidal, track: MixTrack) -> Optional[Track]:
-    searched = LastFmTrack(title=track.title, artists={track.artist})
-    try:
-        found = tidal.find_timed_track(searched)
-    except ObjectNotFound:
-        return None
-    except HTTPError as error:
-        if error.response is None or error.response.status_code != 404:
-            raise
-        return None
+    found = tidal.find_timed_track(LastFmTrack(title=track.title, artists={track.artist}))
     return found if found and is_same_recording(track.title, found.name or '') else None
 
 
@@ -195,7 +185,7 @@ def genre_confidences(tidal: Tidal, last_fm: LastFm, discogs: Discogs, candidate
         gathered = tags.drained()
     anchor = profile.result()
     rarity = tag_rarity(gathered.values())
-    print(f'genres: {len(anchor)} tags anchor {style}, {sum(1 for tags in gathered.values() if tags)} '
+    print(f'genres: {len(anchor)} tags anchor {style}, {sum(1 for vector in gathered.values() if vector)} '
           f'of {len(gathered)} vouching artists tagged')
     return {item.track_id: genre_confidence(item.vouches, gathered, anchor, rarity) for item in evidence}
 
