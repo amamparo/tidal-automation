@@ -2,9 +2,10 @@ import re
 import time
 import unicodedata
 from collections import deque
+from datetime import datetime, timezone
 from functools import partial
 from threading import Lock
-from typing import Callable, Deque, Dict, Iterable, List, Optional, Set, TypeVar, cast
+from typing import Callable, Deque, Dict, Iterable, List, Optional, Set, Tuple, TypeVar, cast
 
 from injector import inject, singleton
 from requests.exceptions import (  # type: ignore[import-untyped]
@@ -48,6 +49,22 @@ PLAYLIST_PAGE_SIZE = 100
 PLAYLIST_SETTLE_SECONDS = 1.0
 
 MISSING_ARTIST: JsonObj = {'id': None, 'name': None}
+NEVER_ADDED = datetime.min.replace(tzinfo=timezone.utc)
+
+
+def newest_first(tracks: List[Track]) -> List[Track]:
+    return sorted(tracks, key=lambda track: track.user_date_added or NEVER_ADDED, reverse=True)
+
+
+def moves_to_reorder(current: List[str], wanted: List[str]) -> List[Tuple[int, int]]:
+    order = list(current)
+    moves = []
+    for position, track_id in enumerate(wanted):
+        index = order.index(track_id)
+        if index != position:
+            moves.append((index, position))
+            order.insert(position, order.pop(index))
+    return moves
 
 
 class NullArtistTolerantSession(Session):
@@ -143,7 +160,15 @@ class Tidal:
         surviving = {str(track.id) for track in self.__playlist_tracks(playlist)}
         arriving = [track_id for track_id in track_ids if track_id not in surviving]
         if arriving:
-            self.__call_api(lambda: playlist.add(arriving, limit=len(arriving)))
+            self.__call_api(lambda: playlist.add(arriving, position=0, limit=len(arriving)))
+        self.__keep_newest_first(playlist)
+
+    def __keep_newest_first(self, playlist: UserPlaylist) -> None:
+        tracks = self.__playlist_tracks(playlist)
+        current = [str(track.id) for track in tracks]
+        wanted = [str(track.id) for track in newest_first(tracks)]
+        for index, position in moves_to_reorder(current, wanted):
+            self.__call_api(partial(playlist.move_by_indices, [index], position))
 
     def find_equivalent_track(self, last_fm_track: LastFmTrack) -> Optional[Track]:
         if last_fm_track in self.__track_find_cache:

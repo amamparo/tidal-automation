@@ -3,8 +3,9 @@
 Rebuilds a Tidal **Daily Blend** playlist on a daily schedule, as an AWS Lambda deployed with CDK, from
 Tidal's Daily Discover and New Arrivals mixes plus last.fm recommendations.
 
-It rebuilds differentially: a track that survives an update keeps its original date-added, so sorting the
-playlist by that shows what is new and what has been hanging around.
+It rebuilds differentially: a track that survives an update keeps its original date-added, and the playlist
+is kept in newest-first order, so what is new sits at the top and what has been hanging around sinks to the
+bottom without touching the sort in Tidal.
 
 ## Requirements
 * Python 3.13

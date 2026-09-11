@@ -8,6 +8,13 @@ This is a Tidal music automation service that rebuilds a Tidal playlist on a dai
 AWS Lambda function via AWS CDK: `src/update_daily_blend.py` builds a "Daily Blend" from Tidal mixes plus
 last.fm recommendations.
 
+The playlist is rewritten differentially, so a surviving track keeps its date-added, and then kept in
+newest-first position order: arrivals are inserted at the top and `Tidal.set_playlist_tracks` reconciles the
+rest with in-place moves, which preserve date-added where a remove-and-re-add would reset it. The sort is
+stable because a day's arrivals share one timestamp — measured 75 of 100 on one run — and an unstable sort
+would reshuffle that block every day. Once ordered, a daily run makes no moves; the first run over a
+100-track playlist made 96 and took 50 seconds.
+
 It runs at 10:00 UTC, which is 04:00 Chicago in winter and 05:00 in summer — the latest UTC
 hour that never starts the job before 4AM local.
 
