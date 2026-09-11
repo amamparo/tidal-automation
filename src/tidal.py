@@ -58,7 +58,7 @@ def newest_first(tracks: List[Track]) -> List[Track]:
 
 def moves_to_reorder(current: List[str], wanted: List[str]) -> List[Tuple[int, int]]:
     order = list(current)
-    moves = []
+    moves: List[Tuple[int, int]] = []
     for position, track_id in enumerate(wanted):
         index = order.index(track_id)
         if index != position:

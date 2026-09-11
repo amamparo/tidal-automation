@@ -16,9 +16,14 @@ class AddedTrack:
     user_date_added: Optional[datetime]
 
 
+def date_added(day: Optional[int]) -> Optional[datetime]:
+    if day is None:
+        return None
+    return MONDAY + timedelta(days=day)
+
+
 def added(*days: Optional[int]) -> List[Track]:
-    return cast(List[Track], [AddedTrack(n, MONDAY + timedelta(days=day) if day is not None else None)
-                              for n, day in enumerate(days)])
+    return cast(List[Track], [AddedTrack(n, date_added(day)) for n, day in enumerate(days)])
 
 
 def ids(tracks: List[Track]) -> List[Optional[int]]:
