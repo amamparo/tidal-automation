@@ -38,6 +38,3 @@ token:
 
 daily-blend:
     {{ python }} -m src.update_daily_blend
-
-darkroom:
-    {{ python }} -m src.update_darkroom

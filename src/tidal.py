@@ -3,9 +3,8 @@ import time
 import unicodedata
 from collections import deque
 from functools import partial
-from math import ceil
 from threading import Lock
-from typing import Callable, Deque, Dict, Iterable, List, Optional, Set, Tuple, TypeVar, cast
+from typing import Callable, Deque, Dict, Iterable, List, Optional, Set, TypeVar, cast
 
 from injector import inject, singleton
 from requests.exceptions import (  # type: ignore[import-untyped]
@@ -14,7 +13,7 @@ from requests.exceptions import (  # type: ignore[import-untyped]
     Timeout,
 )
 from tidalapi import Session, Track, Album, Artist, Playlist, UserPlaylist
-from tidalapi.exceptions import ObjectNotFound, TooManyRequests
+from tidalapi.exceptions import TooManyRequests
 from tidalapi.types import JsonObj
 
 from src.environment import Environment
@@ -36,62 +35,28 @@ TRACK_VERSION_SUFFIX = re.compile(
     re.IGNORECASE,
 )
 GENERIC_REMIX_SUFFIX = re.compile(r'\s*\((?:Remix|Mix)\)', re.IGNORECASE)
-VERSION_MARKER = re.compile(r'[\(\[]([^)\]]*)[\)\]]')
-NEUTRAL_VERSION_MARKER = re.compile(
-    r'^(?:original(?:\s+(?:mix|version))?|album\s+version|single\s+version|'
-    r'(?:\d{4}\s+)?remaster(?:ed)?(?:\s+\d{4})?|explicit|clean|stereo|mono|'
-    r'feat\.?|ft\.?|featuring|with|w/)\b',
-    re.IGNORECASE,
-)
 LIVE_PARENTHETICAL = re.compile(
     r'\s*[\(\[]live\b(?:\s*(?:at|from|in|@)\b[^)\]]*|\s*(?:pa|set|mix|dub|version|edit|take|recording)\b\s*)?[\)\]]',
-    re.IGNORECASE,
-)
-LIVE_MARKER = re.compile(
-    r'^live\b\s*(?:(?:at|from|in|@)\b.*|(?:pa|set|mix|dub|version|edit|take|recording)\b\s*)?$',
-    re.IGNORECASE,
-)
-VERSION_NOUN = re.compile(
-    r'\b(?:remix|rmx|edit|dub|mix|version|rework|refix|reshape|retouch|reassembly|reprise|'
-    r'revision|interpretation|flip|treatment|remake|vip|bootleg|instrumental|acapella|live|'
-    r'extended|radio)\b',
     re.IGNORECASE,
 )
 DASH_REMASTER_SUFFIX = re.compile(r'\s*-\s*\d{4}\s+Remaster(?:ed)?', re.IGNORECASE)
 TITLE_NOISE_SUFFIXES = (COLLABORATION_PARENTHETICAL, TRACK_VERSION_SUFFIX, GENERIC_REMIX_SUFFIX,
                         DASH_REMASTER_SUFFIX, LIVE_PARENTHETICAL)
-MINIMUM_REMIXER_NAME_LENGTH = 3
 
 
 PLAYLIST_PAGE_SIZE = 100
-PLAYLIST_WRITE_REQUESTS = 4
-PLAYLIST_READS_PER_WRITE = 2
 PLAYLIST_SETTLE_SECONDS = 1.0
 PLAYLIST_WRITE_ATTEMPTS = 5
 
 MISSING_ARTIST: JsonObj = {'id': None, 'name': None}
 
 
-def playlist_write_backoff(attempt: int) -> float:
-    return min(10.0, 2.0 ** attempt)
-
-
 class NullArtistTolerantSession(Session):
-    def __init__(self) -> None:
-        super().__init__()
-        self.beats_per_minute: Dict[int, Optional[int]] = {}
-
     def parse_artist(self, obj: JsonObj) -> Artist:
         return super().parse_artist(obj or MISSING_ARTIST)
 
     def parse_artists(self, obj: List[JsonObj]) -> List[Artist]:
         return super().parse_artists(obj or [MISSING_ARTIST])
-
-    def parse_track(self, obj: JsonObj, album: Optional[Album] = None) -> Track:
-        track = super().parse_track(obj, album)
-        if track.id is not None:
-            self.beats_per_minute[track.id] = obj.get('bpm')
-        return track
 
 
 @singleton
@@ -101,27 +66,12 @@ class Tidal:
         self.__tidal = NullArtistTolerantSession()
         self.__tidal.token_refresh(environment.require('TIDAL_REFRESH_TOKEN'))
         self.__tidal.load_oauth_session('Bearer', cast(str, self.__tidal.access_token))
-        self.__track_find_cache: Dict[Tuple[LastFmTrack, bool], Optional[Track]] = {}
+        self.__track_find_cache: Dict[LastFmTrack, Optional[Track]] = {}
         self.__album_cache: Dict[str, Album] = {}
 
         self.__max_requests_per_second = 2
         self.__request_times: Deque[float] = deque(maxlen=self.__max_requests_per_second)
         self.__rate_limit_lock = Lock()
-        self.__requests_made = 0
-        self.__seconds_in_requests = 0.0
-
-    @property
-    def seconds_per_request(self) -> float:
-        rate_limit_floor = 1.0 / self.__max_requests_per_second
-        if self.__requests_made == 0:
-            return rate_limit_floor
-        return max(rate_limit_floor, self.__seconds_in_requests / self.__requests_made)
-
-    def seconds_to_set_playlist(self, playlist_size: int) -> float:
-        pages = ceil(playlist_size / PLAYLIST_PAGE_SIZE)
-        request_count = PLAYLIST_WRITE_REQUESTS + PLAYLIST_WRITE_ATTEMPTS * PLAYLIST_READS_PER_WRITE * pages
-        backoff_seconds = sum(playlist_write_backoff(attempt) for attempt in range(PLAYLIST_WRITE_ATTEMPTS - 1))
-        return request_count * self.seconds_per_request + PLAYLIST_SETTLE_SECONDS + backoff_seconds
 
     def __rate_limit(self) -> None:
         with self.__rate_limit_lock:
@@ -136,14 +86,6 @@ class Tidal:
             self.__request_times.append(now)
 
     def __call_api(self, fn: Callable[[], T]) -> T:
-        started = time.monotonic()
-        try:
-            return self.__call_with_retries(fn)
-        finally:
-            self.__requests_made += 1
-            self.__seconds_in_requests += time.monotonic() - started
-
-    def __call_with_retries(self, fn: Callable[[], T]) -> T:
         max_attempts = 10
         for attempt in range(max_attempts):
             self.__rate_limit()
@@ -195,7 +137,7 @@ class Tidal:
                 precondition_failed = e.response is not None and e.response.status_code == 412
                 if not precondition_failed or attempt == PLAYLIST_WRITE_ATTEMPTS - 1:
                     raise
-                time.sleep(playlist_write_backoff(attempt))
+                time.sleep(min(10.0, 2.0 ** attempt))
         time.sleep(PLAYLIST_SETTLE_SECONDS)
         playlist = cast(UserPlaylist, self.__call_api(lambda: self.__tidal.playlist(playlist_id)))
         surviving = {str(track.id) for track in self.__playlist_tracks(playlist)}
@@ -203,62 +145,28 @@ class Tidal:
         if arriving:
             self.__call_api(lambda: playlist.add(arriving, limit=len(arriving)))
 
-    def beats_per_minute(self, track_id: str) -> Optional[int]:
-        return self.__tidal.beats_per_minute.get(int(track_id))
-
-    def track_radio(self, track: Track) -> List[Track]:
-        return self.__empty_if_not_found(lambda: self.__call_api(track.get_track_radio))
-
-    def find_timed_track(self, last_fm_track: LastFmTrack) -> Optional[Track]:
-        fixed = self.__fix_last_fm_track(last_fm_track)
-        results = self.__empty_if_not_found(lambda: self.__search(fixed))
-        matches = [result for result in results if self.__matches(fixed, result, last_fm_track.title)]
-        timed = [match for match in matches if self.beats_per_minute(str(match.id))]
-        return next(iter(timed or matches), None)
-
-    def find_equivalent_track(self, last_fm_track: LastFmTrack, match_version: bool = False) -> Optional[Track]:
-        cache_key = (last_fm_track, match_version)
-        if cache_key in self.__track_find_cache:
-            return self.__track_find_cache[cache_key]
+    def find_equivalent_track(self, last_fm_track: LastFmTrack) -> Optional[Track]:
+        if last_fm_track in self.__track_find_cache:
+            return self.__track_find_cache[last_fm_track]
 
         fixed = self.__fix_last_fm_track(last_fm_track)
-        results = self.__search(fixed)
-        match = self.__best_match(fixed, results, last_fm_track.title if match_version else None)
+        query = self.__search_query(fixed)
+        results = self.__call_api(lambda: self.__tidal.search(query, models=[Track])['tracks'])
+        match = self.__best_match(fixed, results)
 
-        self.__track_find_cache[cache_key] = match
+        self.__track_find_cache[last_fm_track] = match
         return match
 
-    def __search(self, searched: LastFmTrack) -> List[Track]:
-        query = self.__search_query(searched)
-        return cast(List[Track], self.__call_api(lambda: self.__tidal.search(query, models=[Track])['tracks']))
-
-    @staticmethod
-    def __empty_if_not_found(read: Callable[[], List[Track]]) -> List[Track]:
-        try:
-            return read()
-        except ObjectNotFound:
-            return []
-        except HTTPError as error:
-            if error.response is None or error.response.status_code != 404:
-                raise
-            return []
-
-    def __matches(self, searched: LastFmTrack, result: Track, versioned_title: Optional[str]) -> bool:
-        if versioned_title is not None and not self.__versions_match(versioned_title, result):
-            return False
-        if not self.__titles_match(searched.title, result.name or ''):
-            return False
-        return self.__artists_match(searched.artists, {artist.name for artist in result.artists or []})
-
-    def __best_match(self, searched: LastFmTrack, results: List[Track],
-                     versioned_title: Optional[str]) -> Optional[Track]:
+    def __best_match(self, searched: LastFmTrack, results: List[Track]) -> Optional[Track]:
         various_artists_versions: List[Track] = []
         alternate_versions: List[Track] = []
 
         for result in results:
-            if not self.__matches(searched, result, versioned_title):
+            if not self.__titles_match(searched.title, result.name or ''):
                 continue
             track_artists = {artist.name for artist in result.artists or []}
+            if not self.__artists_match(searched.artists, track_artists):
+                continue
 
             album = self.__get_album(str(cast(Album, result.album).id))
             album_artists = {artist.name for artist in album.artists or []}
@@ -366,29 +274,6 @@ class Tidal:
         if not normalized_searched or not normalized_candidate:
             return False
         return normalized_searched in normalized_candidate or normalized_candidate in normalized_searched
-
-    @staticmethod
-    def __version_markers(title: str) -> Set[str]:
-        markers = (marker.strip() for marker in VERSION_MARKER.findall(title))
-        return {Tidal.__normalize_title(marker) for marker in markers
-                if marker and not NEUTRAL_VERSION_MARKER.match(marker) and not LIVE_MARKER.match(marker)}
-
-    @staticmethod
-    def __versions_match(searched_title: str, result: Track) -> bool:
-        searched = Tidal.__version_markers(searched_title)
-        candidate = Tidal.__version_markers(result.name or '')
-        if result.version:
-            candidate |= Tidal.__version_markers(f'({result.version})')
-        if searched == candidate:
-            return True
-        if candidate - searched:
-            return False
-        credited = {Tidal.__normalize_artist_name(artist.name) for artist in (result.artists or [])}
-        remixers = {Tidal.__normalize_title(VERSION_NOUN.sub(' ', marker)) for marker in searched - candidate}
-        remixers = {remixer for remixer in remixers if len(remixer) >= MINIMUM_REMIXER_NAME_LENGTH}
-        return bool(remixers) and all(
-            any(remixer in artist for artist in credited) for remixer in remixers
-        )
 
     @staticmethod
     def __normalize_artist_name(name: Optional[str]) -> str:
