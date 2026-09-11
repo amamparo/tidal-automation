@@ -46,7 +46,6 @@ TITLE_NOISE_SUFFIXES = (COLLABORATION_PARENTHETICAL, TRACK_VERSION_SUFFIX, GENER
 
 PLAYLIST_PAGE_SIZE = 100
 PLAYLIST_SETTLE_SECONDS = 1.0
-PLAYLIST_WRITE_ATTEMPTS = 5
 
 MISSING_ARTIST: JsonObj = {'id': None, 'name': None}
 
@@ -125,7 +124,8 @@ class Tidal:
 
     def set_playlist_tracks(self, playlist_id: str, track_ids: List[str]) -> None:
         wanted = set(track_ids)
-        for attempt in range(PLAYLIST_WRITE_ATTEMPTS):
+        max_attempts = 5
+        for attempt in range(max_attempts):
             playlist = cast(UserPlaylist, self.__call_api(lambda: self.__tidal.playlist(playlist_id)))
             existing = [str(track.id) for track in self.__playlist_tracks(playlist)]
             departing = [index for index, track_id in enumerate(existing) if track_id not in wanted]
@@ -135,7 +135,7 @@ class Tidal:
                 break
             except HTTPError as e:
                 precondition_failed = e.response is not None and e.response.status_code == 412
-                if not precondition_failed or attempt == PLAYLIST_WRITE_ATTEMPTS - 1:
+                if not precondition_failed or attempt == max_attempts - 1:
                     raise
                 time.sleep(min(10.0, 2.0 ** attempt))
         time.sleep(PLAYLIST_SETTLE_SECONDS)

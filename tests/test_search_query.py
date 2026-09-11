@@ -1,12 +1,10 @@
-from typing import Any, cast
 from unittest import TestCase
 
 from src.tidal import Tidal
 
 
 def clean_title(title: str) -> str:
-    cleaner = getattr(cast(Any, Tidal), '_Tidal__clean_title')
-    return str(cleaner(title))
+    return getattr(Tidal, '_Tidal__clean_title')(title)
 
 
 class LiveMarkersInTheSearchQuery(TestCase):

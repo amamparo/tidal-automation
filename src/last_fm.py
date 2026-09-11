@@ -12,9 +12,6 @@ class LastFmTrack:
     def __hash__(self) -> int:
         return hash((self.title, tuple(sorted(self.artists))))
 
-    def __eq__(self, other: object) -> bool:
-        return isinstance(other, LastFmTrack) and self.title == other.title and self.artists == other.artists
-
 
 class LastFm:
     def get_mix(self, mix_type: str) -> List[LastFmTrack]:
